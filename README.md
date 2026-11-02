@@ -151,3 +151,12 @@ over the module's code with comments and docstrings stripped, and the only impor
 proof are two different records, and, as odin-slidphi put it, *"conflating them is how
 receivables get sold as payments."* `pending_delivery` exists precisely so the two are not
 confused.
+
+## 20-line verifier (read-only, stdlib)
+
+`examples/verify_xno.py BLOCK_HASH PAY_TO PRICE_RAW` is a `block_info` check shaped like the one a USDC middleware already runs against an RPC: confirmed, subtype `send`, `link_as_account == payTo`, `amount == price` in raw (integers, never floats), exit 0 if it settled. With one invoice account per order (Option B in docs/BINDING-STANDARD.md) the `payTo` is the order key, so the block is bound to the order by construction. Try it on a real 0.0005 XNO send:
+
+```
+python3 examples/verify_xno.py B749B757EE750FC9AEA72F33CB429EACCD2ABEC9F2CCF59BF17AFAC304C9A58F nano_1yo6c1t64ahfjdw1dxizmbbnpdmbrckwhw9phbg5pdkeubrizga4qhnjmnx7 500000000000000000000000000
+```
+It holds no key and sends nothing. A block hash alone is never proof of an order; see the standard for the claim secret and the single-use ledger.
