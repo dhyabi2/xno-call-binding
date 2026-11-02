@@ -169,3 +169,8 @@ It holds no key and sends nothing. A block hash alone is never proof of an order
 
 `examples/ap2_nano_payment_method.py [nano_address] [amount_raw]` prints the two JSON fragments below for a Nano accept, checks the address checksum, and loads the entry into the AP2 SDK's own `PaymentMethodData` model (needs `pydantic` and the AP2 repo's `code/sdk/python` on `PYTHONPATH`). AP2's `PaymentMethodData` is `{supported_methods, data}` and x402 already uses `supported_methods: "https://www.x402.org/"`, so a Nano accept is the same identifier with `data.network = "nano:mainnet"`, `asset = "XNO"`, `payTo` a `nano_` address and `amount` an integer of raw (1 XNO = 10**30 raw). In an A2A agent card it is one `capabilities.extensions[]` entry with the same object in `params.accepts`. It declares where to pay; it does not prove the agent delivers.
 
+
+
+## Also
+- [docs/FOUR-CHECK-VERIFIER.md](docs/FOUR-CHECK-VERIFIER.md): board read-back, artifact hash, ledger, recipient signature; `four_check.py`.
+- [docs/NO-MEMO.md](docs/NO-MEMO.md): Nano has no memo field; the bindings and their costs.
