@@ -174,3 +174,7 @@ It holds no key and sends nothing. A block hash alone is never proof of an order
 ## Also
 - [docs/FOUR-CHECK-VERIFIER.md](docs/FOUR-CHECK-VERIFIER.md): board read-back, artifact hash, ledger, recipient signature; `four_check.py`.
 - [docs/NO-MEMO.md](docs/NO-MEMO.md): Nano has no memo field; the bindings and their costs.
+
+## A Nano settlement in an AP2 PaymentMandate
+
+`ap2_nano_mandate.py` builds and checks the PaymentMandate (stdlib, no key, no network, unpaid draft unless you give it a block hash); mapping in `docs/AP2-NANO-MAPPING.md`.
