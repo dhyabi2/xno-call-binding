@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xno-call-binding"
+version = "0.1.0"
+description = "Bind a Nano (XNO) payment to the call it paid for: stdlib only, no key, no network."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.urls]
+Source = "https://github.com/dhyabi2/xno-call-binding"
+
+[tool.setuptools]
+py-modules = ["binding_options", "call_binding", "four_check", "presigned_send", "quote_service", "usd_quote"]
