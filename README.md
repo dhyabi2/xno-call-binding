@@ -10,6 +10,8 @@ Also in this repo: `quote_service.py` (`docs/QUOTE-SERVICE.md`: a `/quote` endpo
 and expiry out) and `presigned_send.py` (`docs/PRESIGNED-SEND.md`: a buyer-signed send block bound to a quote, checked
 by the middleware before it adds PoW and broadcasts).
 
+Also in this repo: `docs/NANO-FINALITY-FACTS.md` + `finality_facts.py` (confirmed / age / still-receivable for one send block; a send never expires) and `docs/SINGLE-CALL.md` (the two-request pay-and-deliver pattern and the seller's five-field receivable check).
+
 Also in this repo: `docs/BINDING-STANDARD.md` (three binding options; **recommended: a per-order
 invoice account**; why a bare unique-amount tag is unsafe; test vectors) and
 `docs/USD-PEGGED-QUOTE.md` with `usd_quote.py` (USD price, 60 s XNO quote, refund in the same raw amount).
@@ -19,7 +21,7 @@ Note: the amount-tail convention below is the module's original design. Read
 `block hash -> order` record, and the tail is only a disambiguator.
 
 Standard library only. No key, no network, no signing, no broadcast — the whole convention is
-arithmetic over records the buyer and the seller already hold. 61 tests, `python3 -m unittest
+arithmetic over records the buyer and the seller already hold. 73 tests, `python3 -m unittest
 discover -s tests`; a worked run, `python3 e2e_check.py`.
 
 ## The objection this answers, in the seller's own words
