@@ -112,7 +112,7 @@ order_id                            order-0001
 Option C  order_commitment(...).hex()
   86e75a339b908cc926a478c1a0e5eb5dd6fc612c1d3251eb661faa78135c36cf
 Option C  commitment_rep_account(...)
-  nano_iumonewuk48ekbo6h51t3shddqdhrrbe5ns75tu85yo9i6tw8u9igehj4ozj
+  nano_33q9dassq66es6mcay83n5kypqgpzjikr9bkc9ope9xch1borfphgehj4ozj
 
 Option B  invoice_index(master_secret = 0x01 * 32, order_id)
   order-0001 -> 1000236334

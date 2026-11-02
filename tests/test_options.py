@@ -1,4 +1,4 @@
-import os, sqlite3, sys, unittest
+import hashlib, os, sqlite3, sys, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import binding_options as b
 
@@ -6,7 +6,12 @@ class T(unittest.TestCase):
     def test_address_codec_matches_docs_vector(self):
         pub = bytes(32)  # the well-known all-zero (burn) account
         self.assertEqual(b.pubkey_to_account(pub), "nano_1111111111111111111111111111111111111111111111111111hifc8npp")
-        self.assertEqual(b.account_to_pubkey(b.pubkey_to_account(pub)), pub)
+        p2 = bytes.fromhex("3068BB1CA04525BB0E416C485FE6A67FD52540227D267CC8B6E8DA958A7FA039")
+        self.assertEqual(b.pubkey_to_account(p2), "nano_1e5aqegc1jb7qe964u4adzmcezyo6o146zb8hm6dft8tkp79za3sxwjym5rx")
+    def test_roundtrip_nonzero_keys(self):
+        for i in range(1, 40):
+            pub = hashlib.sha256(bytes([i])).digest()
+            self.assertEqual(b.account_to_pubkey(b.pubkey_to_account(pub)), pub)
     def test_bad_checksum_refused(self):
         a = b.pubkey_to_account(bytes(range(32)))
         bad = a[:-1] + ("1" if a[-1] != "1" else "3")

@@ -10,12 +10,9 @@ XNO = 10 ** 30
 _ALPHA = "13456789abcdefghijkmnopqrstuwxyz"
 
 
-def _enc32(data: bytes) -> str:
-    n = int.from_bytes(data, "big")
-    pad = (5 - (len(data) * 8) % 5) % 5
-    n <<= pad
+def _enc32(n: int, chars: int) -> str:
     out = []
-    for _ in range((len(data) * 8 + pad) // 5):
+    for _ in range(chars):
         out.append(_ALPHA[n & 31])
         n >>= 5
     return "".join(reversed(out))
@@ -25,8 +22,8 @@ def pubkey_to_account(pub: bytes) -> str:
     """32-byte public key -> nano_ address (52 chars key + 8 chars blake2b-5 checksum)."""
     if len(pub) != 32:
         raise ValueError("public key must be 32 bytes")
-    key = _enc32(pub)[-52:]
-    chk = _enc32(hashlib.blake2b(pub, digest_size=5).digest()[::-1])
+    key = _enc32(int.from_bytes(pub, "big"), 52)  # 256 bits, 4 leading zero pad bits
+    chk = _enc32(int.from_bytes(hashlib.blake2b(pub, digest_size=5).digest()[::-1], "big"), 8)
     return "nano_" + key + chk
 
 
