@@ -164,3 +164,8 @@ confused.
 python3 examples/verify_xno.py B749B757EE750FC9AEA72F33CB429EACCD2ABEC9F2CCF59BF17AFAC304C9A58F nano_1yo6c1t64ahfjdw1dxizmbbnpdmbrckwhw9phbg5pdkeubrizga4qhnjmnx7 500000000000000000000000000
 ```
 It holds no key and sends nothing. A block hash alone is never proof of an order; see the standard for the claim secret and the single-use ledger.
+
+## A Nano entry in an AP2 PaymentRequest and an A2A agent card
+
+`examples/ap2_nano_payment_method.py [nano_address] [amount_raw]` prints the two JSON fragments below for a Nano accept, checks the address checksum, and loads the entry into the AP2 SDK's own `PaymentMethodData` model (needs `pydantic` and the AP2 repo's `code/sdk/python` on `PYTHONPATH`). AP2's `PaymentMethodData` is `{supported_methods, data}` and x402 already uses `supported_methods: "https://www.x402.org/"`, so a Nano accept is the same identifier with `data.network = "nano:mainnet"`, `asset = "XNO"`, `payTo` a `nano_` address and `amount` an integer of raw (1 XNO = 10**30 raw). In an A2A agent card it is one `capabilities.extensions[]` entry with the same object in `params.accepts`. It declares where to pay; it does not prove the agent delivers.
+
