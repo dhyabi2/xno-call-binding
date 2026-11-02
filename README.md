@@ -19,7 +19,7 @@ Note: the amount-tail convention below is the module's original design. Read
 `block hash -> order` record, and the tail is only a disambiguator.
 
 Standard library only. No key, no network, no signing, no broadcast — the whole convention is
-arithmetic over records the buyer and the seller already hold. 54 tests, `python3 -m unittest
+arithmetic over records the buyer and the seller already hold. 61 tests, `python3 -m unittest
 discover -s tests`; a worked run, `python3 e2e_check.py`.
 
 ## The objection this answers, in the seller's own words
