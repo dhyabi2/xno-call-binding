@@ -1,5 +1,14 @@
 # `xno_call_binding` — binding a Nano payment to the call it paid for
 
+## Install
+
+```
+pip install "xno-call-binding @ git+https://github.com/dhyabi2/xno-call-binding@dfbb6f5071d7a94692f020b6747d892a7f09af25"
+python -c "import call_binding"
+```
+
+This pins a reviewed commit until a release tag exists.
+
 **Quickstart (no key, no network, stdlib only):**
 
 ```
