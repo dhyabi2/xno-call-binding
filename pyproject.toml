@@ -14,4 +14,4 @@ dependencies = []
 Source = "https://github.com/dhyabi2/xno-call-binding"
 
 [tool.setuptools]
-py-modules = ["binding_options", "call_binding", "four_check", "presigned_send", "quote_service", "usd_quote"]
+py-modules = ["binding_options", "call_binding", "four_check", "presigned_send", "quote_service", "usd_quote", "finality_facts", "ap2_nano_mandate"]
