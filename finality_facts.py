@@ -49,7 +49,10 @@ def facts(block_hash, nodes=NODES, rpc=_rpc, now=None):
         return {"block": block_hash, "verdict": "inconclusive", "why": "no node answered block_info"}
     if info.get("subtype") not in (None, "send"):
         return {"block": block_hash, "verdict": "inconclusive", "why": "not a send block: %s" % info.get("subtype")}
-    dest = info["contents"].get("link_as_account")
+    contents = info.get("contents")
+    if not isinstance(contents, dict):
+        return {"block": block_hash, "verdict": "inconclusive", "why": "malformed block_info: no contents object"}
+    dest = contents.get("link_as_account")
     ts = int(info.get("local_timestamp") or 0)
     out = {
         "block": block_hash, "node": used, "confirmed": info.get("confirmed") == "true",

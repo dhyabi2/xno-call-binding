@@ -9,7 +9,7 @@ python -c "import call_binding"
 
 This pins a reviewed commit until a release tag exists.
 
-**Quickstart (no key, no network, stdlib only):**
+**Quickstart (no key, stdlib only; the tests and `e2e_check.py` make no outside network calls - one test talks to a loopback server it starts itself):**
 
 ```
 git clone https://github.com/dhyabi2/xno-call-binding && cd xno-call-binding && python3 -m unittest discover -s tests && python3 e2e_check.py
@@ -29,8 +29,11 @@ Note: the amount-tail convention below is the module's original design. Read
 `docs/BINDING-STANDARD.md` first: the binding that matters is the one-to-one
 `block hash -> order` record, and the tail is only a disambiguator.
 
-Standard library only. No key, no network, no signing, no broadcast — the whole convention is
-arithmetic over records the buyer and the seller already hold. 73 tests, `python3 -m unittest
+Standard library only. No key, no signing, no broadcast. The binding convention itself (`call_binding`,
+`binding_options`, `presigned_send`, `ap2_nano_mandate`) makes no network calls: it is arithmetic over
+records the buyer and the seller already hold. Network is used only by the read-only node and price helpers
+(`finality_facts`, `four_check`, `usd_quote`), and only when their functions are called, never at import;
+`quote_service` serves HTTP when you run it and gets its prices through `usd_quote`. 74 tests, `python3 -m unittest
 discover -s tests`; a worked run, `python3 e2e_check.py`.
 
 ## The objection this answers, in the seller's own words
@@ -188,4 +191,4 @@ It holds no key and sends nothing. A block hash alone is never proof of an order
 
 ## A Nano settlement in an AP2 PaymentMandate
 
-`ap2_nano_mandate.py` builds and checks the PaymentMandate (stdlib, no key, no network, unpaid draft unless you give it a block hash); mapping in `docs/AP2-NANO-MAPPING.md`.
+`ap2_nano_mandate.py` builds and checks the PaymentMandate (stdlib, no key; this module makes no network calls; unpaid draft unless you give it a block hash); mapping in `docs/AP2-NANO-MAPPING.md`.

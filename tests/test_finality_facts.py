@@ -46,5 +46,19 @@ class T(unittest.TestCase):
             return node()(url, body)
         self.assertIsNone(ff.facts(H, ["n"], rpc, now=T0)["still_receivable"])
 
+    def test_malformed_contents_is_inconclusive_not_confirmed(self):
+        for bad in ("missing", None, "a string", ["list"]):
+            def rpc(url, body, bad=bad):
+                r = node()(url, body)
+                if body["action"] == "block_info":
+                    if bad == "missing":
+                        del r["contents"]
+                    else:
+                        r["contents"] = bad
+                return r
+            r = ff.facts(H, ["n"], rpc, now=T0)
+            self.assertEqual(r["verdict"], "inconclusive", bad)
+            self.assertNotIn("confirmed", r)
+
 if __name__ == "__main__":
     unittest.main()
