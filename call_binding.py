@@ -135,6 +135,36 @@ DUPLICATE_REFUND_DUE = "duplicate_refund_due"
 REFUND_OVERDUE = "refund_overdue"
 REFUNDED = "refunded"
 UNATTRIBUTED = "unattributed"          # no open quote owns this tail
+INCONCLUSIVE = "inconclusive"          # not confirmed, or the reply is malformed: never credited
+REFUSABLE_NOT_PAYMENT = "refusable_not_payment"  # not a send block, or not to this payto
+
+
+def _int_raw(value):
+    """An int (not bool) or an ASCII digit string, as an int; None for anything else."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return int(value)
+    return None
+
+
+def _destination(block: dict):
+    """link_as_account from the reply, or from its contents; None if absent or contradictory."""
+    top = block.get("link_as_account")
+    contents = block.get("contents")
+    inner = contents.get("link_as_account") if isinstance(contents, dict) else None
+    if contents is not None and not isinstance(contents, dict):
+        return None
+    if top is not None and inner is not None and top != inner:
+        return None
+    found = top if top is not None else inner
+    return found if isinstance(found, str) and found else None
+
+
+def _not_credited(verdict: str, block_hash, why: str) -> dict:
+    return {"verdict": verdict, "block": block_hash, "credited": False, "why": why}
 
 # How long after a duplicate's own block time the refund is due. Derived from the DUPLICATE's
 # block time, not from the merchant's clock, so buyer and seller compute the same bound
@@ -197,15 +227,44 @@ class QuoteLedger:
     def credit(self, block: dict) -> dict:
         """Assign one received block to at most one quote and return the verdict.
 
-        `block` is what a node already gives: {"hash", "amount" (raw), "local_timestamp",
-        "account" (the sender)}. Nothing here is signed or broadcast.
+        `block` is what a node's block_info already gives: {"hash", "amount" (raw, integer
+        string or int), "local_timestamp", "confirmed" ("true" or True), "subtype" ("send"),
+        "link_as_account" or "contents": {"link_as_account"}}. Only a confirmed send to this
+        ledger's payto, of exactly the bound raw amount, inside the window, is ever credited;
+        anything else returns `inconclusive` or `refusable_not_payment` and credits nothing.
+        Nothing here is signed or broadcast.
         """
+        if not isinstance(block, dict):
+            raise BindingError("block must be a dict as a node returns it")
         for field in ("hash", "amount", "local_timestamp"):
             if field not in block:
                 raise BindingError(f"block is missing {field}")
         block_hash = block["hash"]
-        amount_raw = int(block["amount"])
-        at = int(block["local_timestamp"])
+
+        # Nothing is credited unless the node's own reply says it is final, it is an outgoing
+        # transfer, it lands on this ledger's payto, and its amount is integer raw. Anything
+        # else is refused here, before a tail is even looked up, so it can never be credited.
+        amount_raw = _int_raw(block["amount"])
+        if amount_raw is None:
+            return _not_credited(INCONCLUSIVE, block_hash,
+                                 "amount is not integer raw (a float, bool or non-numeric value)")
+        at = _int_raw(block["local_timestamp"])
+        if at is None:
+            return _not_credited(INCONCLUSIVE, block_hash, "local_timestamp is not an integer")
+        confirmed = block.get("confirmed")
+        if not (confirmed is True or confirmed == "true"):
+            return _not_credited(INCONCLUSIVE, block_hash,
+                                 "block is not confirmed by the node; it is not final yet")
+        if block.get("subtype") != "send":
+            return _not_credited(REFUSABLE_NOT_PAYMENT, block_hash,
+                                 "block subtype is %r, not a 'send' to payto" % block.get("subtype"))
+        destination = _destination(block)
+        if destination is None:
+            return _not_credited(INCONCLUSIVE, block_hash,
+                                 "block names no destination (link_as_account)")
+        if destination != self.payto:
+            return _not_credited(REFUSABLE_NOT_PAYMENT, block_hash,
+                                 "block pays another account, not this ledger's payto")
 
         # Idempotent: re-reading the same block never changes or re-credits anything.
         if block_hash in self._blocks:

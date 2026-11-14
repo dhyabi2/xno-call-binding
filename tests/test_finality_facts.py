@@ -60,5 +60,37 @@ class T(unittest.TestCase):
             self.assertEqual(r["verdict"], "inconclusive", bad)
             self.assertNotIn("confirmed", r)
 
+    def _with(self, **changes):
+        def rpc(url, body):
+            r = node()(url, body)
+            if body["action"] == "block_info":
+                for k, v in changes.items():
+                    if v is self:
+                        r.pop(k, None)
+                    else:
+                        r[k] = v
+            return r
+        return ff.facts(H, ["n"], rpc, now=T0)
+
+    def test_send_subtype_is_required(self):
+        for subtype in (None, "receive", "open"):
+            r = self._with(subtype=subtype)
+            self.assertEqual(r["verdict"], "inconclusive", subtype)
+        self.assertEqual(self._with(subtype=self)["verdict"], "inconclusive")
+
+    def test_empty_contents_or_missing_amount_is_inconclusive(self):
+        for changes in ({"contents": {}}, {"contents": {"type": "state"}}, {"amount": self},
+                        {"amount": "1.5"}, {"amount": None}):
+            r = self._with(**changes)
+            self.assertEqual(r["verdict"], "inconclusive", changes)
+            self.assertNotIn("confirmed", r)
+
+    def test_bad_local_timestamp_is_inconclusive_not_a_crash(self):
+        for ts in ("abc", "1.5", 1.5, True, "-5"):
+            self.assertEqual(self._with(local_timestamp=ts)["verdict"], "inconclusive", ts)
+        # absent timestamp is not an error: the age is simply unknown
+        r = self._with(local_timestamp=self)
+        self.assertEqual((r["verdict"], r["age_days"]), ("confirmed", None))
+
 if __name__ == "__main__":
     unittest.main()

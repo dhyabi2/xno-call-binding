@@ -18,6 +18,8 @@ order_key = os.urandom(32)    # the buyer mints this BEFORE paying and keeps it
 qid = cb.derive_quote_id(order_key, resource="/api/a2a/x402/audit",
                          price_raw=PRICE, payto=PAYTO)
 
+# What a node block_info reply says about a confirmed send to PAYTO (mocked here, not a real node).
+FINAL = {"confirmed": "true", "subtype": "send", "link_as_account": PAYTO}
 led = cb.QuoteLedger(payto=PAYTO)
 rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 300)
 
@@ -31,7 +33,7 @@ print()
 
 # 1. exact, in window, delivered
 led.mark_delivered(qid)
-ok = led.credit({"hash": "A" * 64, "amount": str(rec["expected_raw"]),
+ok = led.credit({**FINAL, "hash": "A" * 64, "amount": str(rec["expected_raw"]),
                  "local_timestamp": NOW + 12})
 print("1 exact in window ->", ok["verdict"], "|", ok["why"])
 
@@ -39,7 +41,7 @@ print("1 exact in window ->", ok["verdict"], "|", ok["why"])
 led2 = cb.QuoteLedger(payto=PAYTO)
 q2 = cb.derive_quote_id(os.urandom(32), resource="/x", price_raw=PRICE, payto=PAYTO)
 r2 = led2.open_quote(q2, price_raw=PRICE, expires_at=NOW + 300)
-late = led2.credit({"hash": "B" * 64, "amount": str(r2["expected_raw"]),
+late = led2.credit({**FINAL, "hash": "B" * 64, "amount": str(r2["expected_raw"]),
                     "local_timestamp": NOW + 999})
 print("2 paid late       ->", late["verdict"], "| expired", late["expired_at"],
       "paid", late["paid_at"])
@@ -48,13 +50,13 @@ print("2 paid late       ->", late["verdict"], "| expired", late["expired_at"],
 led3 = cb.QuoteLedger(payto=PAYTO)
 q3 = cb.derive_quote_id(os.urandom(32), resource="/x", price_raw=PRICE, payto=PAYTO)
 r3 = led3.open_quote(q3, price_raw=PRICE, expires_at=NOW + 300)
-wrong = led3.credit({"hash": "C" * 64, "amount": str(r3["expected_raw"] - cb.TAIL_UNIT),
+wrong = led3.credit({**FINAL, "hash": "C" * 64, "amount": str(r3["expected_raw"] - cb.TAIL_UNIT),
                      "local_timestamp": NOW + 12})
 print("3 wrong amount    ->", wrong["verdict"], "| expected", wrong["expected_raw"],
       "got", wrong["paid_raw"])
 
 # 4. duplicate, and the refund bound both sides can compute
-dup = led.credit({"hash": "D" * 64, "amount": str(rec["expected_raw"]),
+dup = led.credit({**FINAL, "hash": "D" * 64, "amount": str(rec["expected_raw"]),
                   "local_timestamp": NOW + 60})
 print("4 duplicate       ->", dup["verdict"], "| refund due by", dup["refund_due_by"],
       "(duplicate's own block time + 3600)")

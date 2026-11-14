@@ -34,6 +34,17 @@ def _rpc(url, body, timeout=20):
         return json.loads(r.read())
 
 
+def _digits(value):
+    """An int (not bool) or an ASCII digit string, as an int; None for anything else."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return int(value)
+    return None
+
+
 def facts(block_hash, nodes=NODES, rpc=_rpc, now=None):
     now = time.time() if now is None else now
     info = None
@@ -47,13 +58,23 @@ def facts(block_hash, nodes=NODES, rpc=_rpc, now=None):
             break
     if info is None:
         return {"block": block_hash, "verdict": "inconclusive", "why": "no node answered block_info"}
-    if info.get("subtype") not in (None, "send"):
+    if info.get("subtype") != "send":
         return {"block": block_hash, "verdict": "inconclusive", "why": "not a send block: %s" % info.get("subtype")}
     contents = info.get("contents")
-    if not isinstance(contents, dict):
+    if not isinstance(contents, dict) or not contents:
         return {"block": block_hash, "verdict": "inconclusive", "why": "malformed block_info: no contents object"}
     dest = contents.get("link_as_account")
-    ts = int(info.get("local_timestamp") or 0)
+    if not isinstance(dest, str) or not dest:
+        return {"block": block_hash, "verdict": "inconclusive", "why": "malformed block_info: no destination"}
+    if _digits(info.get("amount")) is None:
+        return {"block": block_hash, "verdict": "inconclusive", "why": "malformed block_info: amount is not integer raw"}
+    raw_ts = info.get("local_timestamp")
+    if raw_ts in (None, "", 0, "0"):
+        ts = 0
+    else:
+        ts = _digits(raw_ts)
+        if ts is None:
+            return {"block": block_hash, "verdict": "inconclusive", "why": "malformed block_info: local_timestamp is not an integer"}
     out = {
         "block": block_hash, "node": used, "confirmed": info.get("confirmed") == "true",
         "amount_raw": info.get("amount"), "destination": dest,

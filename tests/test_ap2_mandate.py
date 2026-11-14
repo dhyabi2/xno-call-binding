@@ -24,6 +24,15 @@ class T(unittest.TestCase):
         m = M.build("m", ADDR, 5, "R")
         m["payment_mandate_contents"]["payment_response"]["details"]["accepted"]["network"] = "eip155:8453"
         self.assertIn("accepted.network must be nano:mainnet", M.check(m))
+    def test_non_object_input_is_a_refusal_not_a_crash(self):
+        for bad in (None, [], "x", 5):
+            self.assertTrue(M.check(bad), bad)
+        m = M.build("m", ADDR, 5, "R", H)
+        d = m["payment_mandate_contents"]["payment_response"]["details"]
+        for k, v in (("accepted", "x"), ("payload", []), ("settlement", None)):
+            mm = json.loads(json.dumps(m)); mm["payment_mandate_contents"]["payment_response"]["details"][k] = v
+            self.assertTrue(M.check(mm), k)
+        self.assertEqual(M.check(m), []); self.assertIsInstance(d, dict)
     def test_cli_check_roundtrip(self):
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False); json.dump(M.build("m", ADDR, 5, "R", H), f); f.close()
         self.assertEqual(M.main(["--check", f.name]), 0)

@@ -26,6 +26,14 @@ def quote(key=b"\x01" * 32, price=PRICE, resource="/audit"):
     return cb.derive_quote_id(key, resource=resource, price_raw=price, payto=PAYTO)
 
 
+# What a node's block_info says about a final send to PAYTO; tests override single fields.
+FINAL = {"confirmed": "true", "subtype": "send", "link_as_account": PAYTO}
+
+
+def credit(led, block):
+    return led.credit(dict(FINAL, **block))
+
+
 class OdinSlidphiThreeTests(unittest.TestCase):
     """The attribution tests the seller named, in its own order."""
 
@@ -36,7 +44,7 @@ class OdinSlidphiThreeTests(unittest.TestCase):
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 300)
         led.mark_delivered(qid)
-        out = led.credit({"hash": "B" * 64, "amount": str(rec["expected_raw"]),
+        out = credit(led, {"hash": "B" * 64, "amount": str(rec["expected_raw"]),
                           "local_timestamp": NOW + 10})
         self.assertEqual(out["verdict"], cb.MATCHED)
         self.assertEqual(out["quote_id"], qid)
@@ -47,7 +55,7 @@ class OdinSlidphiThreeTests(unittest.TestCase):
         led = cb.QuoteLedger(payto=PAYTO)
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 300)
-        out = led.credit({"hash": "C" * 64, "amount": str(rec["expected_raw"]),
+        out = credit(led, {"hash": "C" * 64, "amount": str(rec["expected_raw"]),
                           "local_timestamp": NOW + 301})
         self.assertEqual(out["verdict"], cb.REFUSABLE_LATE)
         # The evidence is in the row, so the buyer can check the refusal itself.
@@ -59,7 +67,7 @@ class OdinSlidphiThreeTests(unittest.TestCase):
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 300)
         # Right tail, short price: attributable but not paid in full.
-        out = led.credit({"hash": "D" * 64,
+        out = credit(led, {"hash": "D" * 64,
                           "amount": str(rec["expected_raw"] - cb.TAIL_UNIT),
                           "local_timestamp": NOW + 10})
         self.assertEqual(out["verdict"], cb.REFUSABLE_WRONG_AMOUNT)
@@ -88,15 +96,15 @@ class BoscoRoteoThreeObjections(unittest.TestCase):
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 600)
         led.mark_delivered(qid)
-        first = led.credit({"hash": "E" * 64, "amount": str(rec["expected_raw"]),
+        first = credit(led, {"hash": "E" * 64, "amount": str(rec["expected_raw"]),
                             "local_timestamp": NOW + 10})
         self.assertEqual(first["verdict"], cb.MATCHED)
         # A second DISTINCT block paying the same quote exactly is a duplicate, not a credit.
-        second = led.credit({"hash": "F" * 64, "amount": str(rec["expected_raw"]),
+        second = credit(led, {"hash": "F" * 64, "amount": str(rec["expected_raw"]),
                              "local_timestamp": NOW + 20})
         self.assertEqual(second["verdict"], cb.DUPLICATE_REFUND_DUE)
         # Re-reading the first block is idempotent, never a second credit.
-        again = led.credit({"hash": "E" * 64, "amount": str(rec["expected_raw"]),
+        again = credit(led, {"hash": "E" * 64, "amount": str(rec["expected_raw"]),
                             "local_timestamp": NOW + 10})
         self.assertTrue(again["replay"])
         self.assertEqual(again["quote_id"], qid)
@@ -122,7 +130,7 @@ class PrismdeadlinesAmbiguousCases(unittest.TestCase):
         led = cb.QuoteLedger(payto=PAYTO)
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 300)
-        out = led.credit({"hash": "A" * 64, "amount": str(rec["expected_raw"]),
+        out = credit(led, {"hash": "A" * 64, "amount": str(rec["expected_raw"]),
                           "local_timestamp": NOW + 10})
         self.assertEqual(out["verdict"], cb.PENDING_DELIVERY)
         self.assertNotEqual(out["verdict"], cb.UNATTRIBUTED)
@@ -134,9 +142,9 @@ class PrismdeadlinesAmbiguousCases(unittest.TestCase):
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 600)
         led.mark_delivered(qid)
-        led.credit({"hash": "1" * 64, "amount": str(rec["expected_raw"]),
+        credit(led, {"hash": "1" * 64, "amount": str(rec["expected_raw"]),
                     "local_timestamp": NOW + 10})
-        dup = led.credit({"hash": "2" * 64, "amount": str(rec["expected_raw"]),
+        dup = credit(led, {"hash": "2" * 64, "amount": str(rec["expected_raw"]),
                           "local_timestamp": NOW + 50})
         # The duplicate's own block time, not "now" and not the first block's.
         self.assertEqual(dup["refund_due_by"], NOW + 50 + cb.REFUND_WINDOW_S)
@@ -194,7 +202,7 @@ class Controls(unittest.TestCase):
     def test_14_unattributed_payment_is_named_not_silently_kept(self):
         # "unmatched money is a support burden, not revenue" - so it gets its own verdict.
         led = cb.QuoteLedger(payto=PAYTO)
-        out = led.credit({"hash": "9" * 64,
+        out = credit(led, {"hash": "9" * 64,
                           "amount": str(7 * 10**27 + 123 * 10**15),
                           "local_timestamp": NOW})
         self.assertEqual(out["verdict"], cb.UNATTRIBUTED)
@@ -224,7 +232,79 @@ class Controls(unittest.TestCase):
     def test_16_malformed_block_is_an_error_not_a_verdict(self):
         led = cb.QuoteLedger(payto=PAYTO)
         with self.assertRaises(cb.BindingError):
-            led.credit({"hash": "0" * 64, "amount": "1"})  # no local_timestamp
+            credit(led, {"hash": "0" * 64, "amount": "1"})  # no local_timestamp
+
+
+class CreditOnlyFinalSendsToPayto(unittest.TestCase):
+    """credit() must refuse anything that is not a confirmed send of exact integer raw to payto."""
+
+    def setUp(self):
+        self.led = cb.QuoteLedger(payto=PAYTO)
+        self.qid = quote()
+        self.rec = self.led.open_quote(self.qid, price_raw=PRICE, expires_at=NOW + 300)
+        self.led.mark_delivered(self.qid)
+        self.good = dict(FINAL, hash="B" * 64, amount=str(self.rec["expected_raw"]),
+                         local_timestamp=str(NOW + 10))
+
+    def assertNotCredited(self, block, verdict):
+        out = self.led.credit(block)
+        self.assertEqual(out["verdict"], verdict, out)
+        self.assertNotIn(self.qid, self.led._credited)
+        self.assertNotIn(block.get("hash"), self.led._blocks)
+        # and the genuine payment is still creditable afterwards
+        self.assertEqual(self.led.credit(self.good)["verdict"], cb.MATCHED)
+
+    def test_17_genuine_node_reply_is_credited(self):
+        for confirmed in ("true", True):
+            led = cb.QuoteLedger(payto=PAYTO)
+            rec = led.open_quote(self.qid, price_raw=PRICE, expires_at=NOW + 300)
+            led.mark_delivered(self.qid)
+            block = {"hash": "B" * 64, "amount": rec["expected_raw"], "local_timestamp": NOW + 10,
+                     "confirmed": confirmed, "subtype": "send",
+                     "contents": {"link_as_account": PAYTO}}
+            self.assertEqual(led.credit(block)["verdict"], cb.MATCHED)
+
+    def test_18_unconfirmed_is_not_credited(self):
+        for confirmed in ("false", False, None, "True", 1):
+            self.setUp()
+            self.assertNotCredited(dict(self.good, confirmed=confirmed), cb.INCONCLUSIVE)
+        self.setUp()
+        block = dict(self.good)
+        del block["confirmed"]
+        self.assertNotCredited(block, cb.INCONCLUSIVE)
+
+    def test_19_receive_or_missing_subtype_is_not_credited(self):
+        for subtype in ("receive", "open", "change", None):
+            self.setUp()
+            self.assertNotCredited(dict(self.good, subtype=subtype), cb.REFUSABLE_NOT_PAYMENT)
+
+    def test_20_other_destination_is_not_credited(self):
+        other = "nano_1111111111111111111111111111111111111111111111111111hifc8npp"
+        self.assertNotCredited(dict(self.good, link_as_account=other), cb.REFUSABLE_NOT_PAYMENT)
+        self.setUp()
+        block = dict(self.good, contents={"link_as_account": other})
+        del block["link_as_account"]
+        self.assertNotCredited(block, cb.REFUSABLE_NOT_PAYMENT)
+        self.setUp()
+        # contradictory top-level and contents destinations, or none at all
+        self.assertNotCredited(dict(self.good, contents={"link_as_account": other}), cb.INCONCLUSIVE)
+        self.setUp()
+        block = dict(self.good)
+        del block["link_as_account"]
+        self.assertNotCredited(block, cb.INCONCLUSIVE)
+        self.setUp()
+        self.assertNotCredited(dict(block, contents="x"), cb.INCONCLUSIVE)
+
+    def test_21_float_bool_or_non_numeric_amount_is_refused(self):
+        exact = self.rec["expected_raw"]
+        for amount in (float(exact), True, "abc", "1.5", "-1", str(exact) + ".0", "", None, [exact]):
+            self.setUp()
+            self.assertNotCredited(dict(self.good, amount=amount), cb.INCONCLUSIVE)
+
+    def test_22_bad_timestamp_is_inconclusive_not_a_crash(self):
+        for ts in ("abc", "1.5", 1.5, None, True):
+            self.setUp()
+            self.assertNotCredited(dict(self.good, local_timestamp=ts), cb.INCONCLUSIVE)
 
 
 if __name__ == "__main__":

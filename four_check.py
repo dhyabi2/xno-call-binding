@@ -59,18 +59,31 @@ def artifact_match(artifact_sha256, file_bytes):
 
 
 def ledger(block_info_replies, payto, expect_raw):
-    """block_info replies from >= 1 node. pass needs a confirmed send, link_as_account == payto, amount >= expect."""
+    """block_info replies from >= 1 node. pass needs a confirmed send, link_as_account == payto, amount >= expect.
+
+    A reply that cannot be read (contents not an object, amount not integer raw) is inconclusive, never a pass
+    and never a fail; a definite mismatch from any node (not a send, wrong recipient, short) is a fail."""
+    expect = _digits(expect_raw)
+    if expect is None:
+        return "inconclusive", "expected amount is not integer raw", None
     ok = [r for r in block_info_replies if isinstance(r, dict) and "error" not in r]
     if not ok:
         return "inconclusive", "no node returned the block", None
     verdicts, ts = set(), None
     for r in ok:
-        c = r.get("contents") or {}
-        if str(r.get("confirmed")).lower() != "true":
+        c = r.get("contents", {})
+        amount = _digits(r.get("amount"))
+        if not isinstance(c, dict):
+            verdicts.add("malformed")
+        elif str(r.get("confirmed")).lower() != "true":
             verdicts.add("unconfirmed")
+        elif r.get("subtype") != "send":
+            verdicts.add("not_send")
         elif c.get("link_as_account") != payto:
             verdicts.add("wrong_recipient")
-        elif int(r.get("amount", 0)) < int(expect_raw):
+        elif amount is None:
+            verdicts.add("malformed")
+        elif amount < expect:
             verdicts.add("short")
         else:
             verdicts.add("ok")
@@ -79,7 +92,20 @@ def ledger(block_info_replies, payto, expect_raw):
         return "pass", "confirmed send of >= expected amount to the expected account", ts
     if verdicts == {"unconfirmed"}:
         return "inconclusive", "block not confirmed yet", None
+    if "malformed" in verdicts and not verdicts & {"not_send", "wrong_recipient", "short"}:
+        return "inconclusive", "a node reply could not be read: " + ",".join(sorted(verdicts)), None
     return "fail", "nodes report: " + ",".join(sorted(verdicts)), None
+
+
+def _digits(value):
+    """An int (not bool) or an ASCII digit string, as an int; None for anything else."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return int(value)
+    return None
 
 
 def signature_check(payto, ask_id, artifact_sha256, nonce, sig_hex):

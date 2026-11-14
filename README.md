@@ -105,7 +105,8 @@ that actually decide whether an integrator trusts a rail:
 3. `amount_tail = PRF(quote_id) mod 10**6`, placed in the low-order raw digits. One address,
    many distinguishable payments, no memo field needed.
 4. The **seller** opens the quote, refusing the tail if it is already in flight, and thereafter
-   assigns each received block to at most one quote, returning one of eight verdicts.
+   assigns each received block to at most one quote, returning one of ten verdicts. Only a block the node reports as `confirmed`,
+   subtype `send`, `link_as_account == payTo`, with an integer raw amount, can ever be credited.
 
 The reserved tail is `10**21` raw wide — about `5.7e-11` XNO of overhead on a 0.05 XNO quote,
 which is less than a billionth of a cent. The price is always rounded **up** to a whole tail
@@ -113,7 +114,8 @@ unit before the tail is added, so the seller is never paid less than it quoted (
 
 All amounts are integer raw. `1 XNO = 10**30 raw`, and a float cannot hold it: `0.05 * 10**30`
 is `50000000000000004512668450816`, not `50000000000000000000000000000`. Every entry point
-refuses a float rather than silently losing digits (`test_10`).
+refuses a float rather than silently losing digits (`test_10`), and `credit()` refuses a float,
+bool or non-numeric block amount instead of crediting it (`test_21`).
 
 ## The `accepts[]` entry, as text
 

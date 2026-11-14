@@ -30,6 +30,8 @@ REFUSALS = {
     cb.REFUSABLE_WRONG_AMOUNT: "amount differs from amount_raw (even by 1 raw): refuse, refund the same raw amount",
     cb.DUPLICATE_REFUND_DUE: "a second exact payment for a quote already credited: refund within refund_window_s",
     cb.UNATTRIBUTED: "no open quote owns this tail: not credited to anyone",
+    cb.INCONCLUSIVE: "block not confirmed, or the reply is malformed (amount not integer raw): not credited; re-read later",
+    cb.REFUSABLE_NOT_PAYMENT: "not a send block to pay_to (a receive, or another destination): never credited",
 }
 
 
@@ -67,7 +69,9 @@ class QuoteService:
         return dict(out)
 
     def settle(self, block):
-        """Judge a block someone already sent: {hash, amount, local_timestamp}. Nothing is sent or signed."""
+        """Judge a block someone already sent, as block_info returns it: {hash, amount, local_timestamp,
+        confirmed, subtype, link_as_account or contents.link_as_account}. Only a confirmed send to pay_to of the
+        exact integer amount_raw is credited. Nothing is sent or signed."""
         return self.ledger.credit(block)
 
     def _sweep(self):

@@ -61,6 +61,7 @@ def build(merchant, pay_to, raw, request_id, block_hash=None, cart_mandate_id=No
 def check(m):
     """Return a list of problems; [] means it matches AP2's PaymentMandate model and the Nano rules."""
     p = []
+    if not isinstance(m, dict): return ["$ must be a JSON object"]
     def need(d, k, t, path):
         if not isinstance(d, dict) or k not in d: p.append(f"{path}.{k} missing"); return None
         if not isinstance(d[k], t): p.append(f"{path}.{k} wrong type"); return None
@@ -78,11 +79,14 @@ def check(m):
         d = r.get("details")
         if not isinstance(d, dict): p.append("response.details missing"); return p
         a = d.get("accepted", {})
+        if not isinstance(a, dict): p.append("accepted must be an object"); return p
         if a.get("network") != "nano:mainnet": p.append("accepted.network must be nano:mainnet")
         if not valid_nano(a.get("payTo")): p.append("accepted.payTo not a valid Nano address")
-        if not str(a.get("amount", "")).isdigit() or int(a["amount"]) <= 0: p.append("accepted.amount must be integer raw")
-        h = d.get("payload", {}).get("block_hash")
-        if d.get("settlement", {}).get("state") == "paid":
+        if not (isinstance(a.get("amount"), str) and a["amount"].isascii() and a["amount"].isdigit()) or int(a["amount"]) <= 0: p.append("accepted.amount must be integer raw")
+        pl, st = d.get("payload", {}), d.get("settlement", {})
+        if not isinstance(pl, dict) or not isinstance(st, dict): p.append("payload and settlement must be objects"); return p
+        h = pl.get("block_hash")
+        if st.get("state") == "paid":
             if not (isinstance(h, str) and re.fullmatch(r"[0-9A-F]{64}", h)): p.append("paid mandate needs a 64-hex block_hash")
         elif h: p.append("unpaid mandate must not carry a block_hash")
     if m.get("user_authorization") not in (None,) and not isinstance(m["user_authorization"], str): p.append("user_authorization must be a string or null")

@@ -24,6 +24,33 @@ def qid(key=b"k" * 32, cents=250):
     return qs.usd_quote_id(key, resource="/api/x", usd_cents=cents, payto=PAYTO)
 
 
+# What a node's block_info says about a final send to PAYTO.
+FINAL = {"confirmed": "true", "subtype": "send", "link_as_account": PAYTO}
+
+
+def settle(s, block):
+    return s.settle(dict(FINAL, **block))
+
+
+class SettleRefusesWhatIsNotFinal(unittest.TestCase):
+    def setUp(self):
+        T[0] = 1_790_000_000
+
+    def test_unconfirmed_receive_or_other_destination_is_never_credited(self):
+        for bad, verdict in (({"confirmed": "false"}, cb.INCONCLUSIVE),
+                             ({"subtype": "receive"}, cb.REFUSABLE_NOT_PAYMENT),
+                             ({"link_as_account": "nano_3other"}, cb.REFUSABLE_NOT_PAYMENT),
+                             ({"amount": 1.0}, cb.INCONCLUSIVE)):
+            s = svc()
+            q = s.quote(250, qid())
+            block = dict(FINAL, hash="A" * 64, amount=q["amount_raw"], local_timestamp=T[0] + 5)
+            block.update(bad)
+            v = s.settle(block)
+            self.assertEqual(v["verdict"], verdict, bad)
+            self.assertNotIn(v["verdict"], (cb.MATCHED, cb.PENDING_DELIVERY))
+            self.assertIn(verdict, qs.REFUSALS)
+
+
 class Quote(unittest.TestCase):
     def setUp(self):
         T[0] = 1_790_000_000
@@ -37,27 +64,27 @@ class Quote(unittest.TestCase):
     def test_exact_payment_in_window_matches(self):
         s = svc()
         q = s.quote(250, qid())
-        v = s.settle({"hash": "A" * 64, "amount": q["amount_raw"], "local_timestamp": q["expires_at"]})
+        v = settle(s, {"hash": "A" * 64, "amount": q["amount_raw"], "local_timestamp": q["expires_at"]})
         self.assertIn(v["verdict"], (cb.MATCHED, cb.PENDING_DELIVERY))
 
     def test_late_is_refusable_with_both_timestamps(self):
         s = svc()
         q = s.quote(250, qid())
-        v = s.settle({"hash": "B" * 64, "amount": q["amount_raw"], "local_timestamp": q["expires_at"] + 1})
+        v = settle(s, {"hash": "B" * 64, "amount": q["amount_raw"], "local_timestamp": q["expires_at"] + 1})
         self.assertEqual(v["verdict"], cb.REFUSABLE_LATE)
         self.assertEqual((v["expired_at"], v["paid_at"]), (q["expires_at"], q["expires_at"] + 1))
 
     def test_one_raw_off_is_refusable_wrong_amount(self):
         s = svc()
         q = s.quote(250, qid())
-        v = s.settle({"hash": "C" * 64, "amount": str(int(q["amount_raw"]) + 1), "local_timestamp": T[0]})
+        v = settle(s, {"hash": "C" * 64, "amount": str(int(q["amount_raw"]) + 1), "local_timestamp": T[0]})
         self.assertEqual(v["verdict"], cb.REFUSABLE_WRONG_AMOUNT)
 
     def test_a_second_exact_payment_is_a_duplicate_to_refund(self):
         s = svc()
         q = s.quote(250, qid())
         for h in ("D" * 64, "E" * 64):
-            v = s.settle({"hash": h, "amount": q["amount_raw"], "local_timestamp": T[0] + 5})
+            v = settle(s, {"hash": h, "amount": q["amount_raw"], "local_timestamp": T[0] + 5})
         self.assertEqual(v["verdict"], cb.DUPLICATE_REFUND_DUE)
         self.assertEqual(v["refund_amount_raw"], q["amount_raw"])
 

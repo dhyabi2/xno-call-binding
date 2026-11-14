@@ -17,7 +17,7 @@ def sig(ask=ASK, h=H, nonce=NONCE):
 
 
 def reply(**kw):
-    r = {"confirmed": "true", "amount": RAW, "local_timestamp": "1790000000", "contents": {"link_as_account": PAYTO}}
+    r = {"confirmed": "true", "subtype": "send", "amount": RAW, "local_timestamp": "1790000000", "contents": {"link_as_account": PAYTO}}
     r.update(kw); return r
 
 
@@ -46,6 +46,18 @@ class T(unittest.TestCase):
 
     def test_unconfirmed_is_not_a_pass(self):
         self.assertEqual(fc.ledger([reply(confirmed="false")], PAYTO, RAW)[0], "inconclusive")
+
+    def test_receive_block_is_not_a_pass(self):
+        for subtype in ("receive", None):
+            self.assertEqual(fc.ledger([reply(subtype=subtype)], PAYTO, RAW)[0], "fail")
+
+    def test_malformed_reply_is_inconclusive_not_a_crash(self):
+        for bad in (dict(contents="a string"), dict(contents=["x"]), dict(contents=None),
+                    dict(amount="abc"), dict(amount="1.5"), dict(amount=1.5), dict(amount=True)):
+            self.assertEqual(fc.ledger([reply(**bad)], PAYTO, RAW)[0], "inconclusive", bad)
+        self.assertEqual(fc.ledger([reply()], PAYTO, "1.5")[0], "inconclusive")
+        # a definite mismatch from another node is still a fail, never downgraded
+        self.assertEqual(fc.ledger([reply(amount="abc"), reply(amount="1")], PAYTO, RAW)[0], "fail")
 
     def test_one_dissenting_node_fails(self):
         self.assertEqual(fc.ledger([reply(), reply(amount="1")], PAYTO, RAW)[0], "fail")
