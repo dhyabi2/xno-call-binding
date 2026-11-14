@@ -30,6 +30,11 @@ curl 'http://127.0.0.1:8403/quote?usd_cents=250&quote_id=<hex from usd_quote_id>
 | any other amount, even 1 raw off | `refusable_wrong_amount` (both amounts) | refuse, refund the same raw amount |
 | a second exact payment for a credited quote | `duplicate_refund_due` | refund within `refund_window_s` of the duplicate's block time |
 | tail owned by no open quote | `unattributed` | credit nobody |
+| not confirmed, unreadable reply (amount not integer raw, hash not 64 hex, block time missing or 0), or a receive not shown to be on `pay_to` | `inconclusive` | credit nobody; re-read later, or pass `account=pay_to` / `source=` |
+| a send to another account, a receive on another account, a change block | `refusable_not_payment` | credit nobody |
+
+`settle` takes the buyer's send (`block_info`, with `block_hash=` since the reply has no `hash`) or `pay_to`'s own
+receive of it (`account=pay_to` for an entry of `pay_to`'s `account_history`), as `call_binding` describes.
 
 - **Refund** is the same raw amount that was paid, never re-converted: no FX exposure after settlement either way.
 - Read-only and keyless: it quotes and it judges blocks someone else sent. Tests: `tests/test_quote_service.py`.

@@ -34,13 +34,16 @@ def _rpc(url, body, timeout=20):
         return json.loads(r.read())
 
 
+MAX_DIGITS = 40  # the XNO supply is under 2**128 raw (39 digits); int() of a huge string raises on 3.11+
+
+
 def _digits(value):
-    """An int (not bool) or an ASCII digit string, as an int; None for anything else."""
+    """An int (not bool) or an ASCII digit string of at most 40 digits, as an int; None for anything else."""
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
-        return value if value >= 0 else None
-    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return value if 0 <= value < 10 ** MAX_DIGITS else None
+    if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= MAX_DIGITS:
         return int(value)
     return None
 
@@ -76,7 +79,7 @@ def facts(block_hash, nodes=NODES, rpc=_rpc, now=None):
         if ts is None:
             return {"block": block_hash, "verdict": "inconclusive", "why": "malformed block_info: local_timestamp is not an integer"}
     out = {
-        "block": block_hash, "node": used, "confirmed": info.get("confirmed") == "true",
+        "block": block_hash, "node": used, "confirmed": info.get("confirmed") is True or info.get("confirmed") == "true",
         "amount_raw": info.get("amount"), "destination": dest,
         "age_days": round((now - ts) / 86400, 2) if ts else None, "expires": "never",
         "still_receivable": None,

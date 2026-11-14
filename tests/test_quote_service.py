@@ -38,7 +38,9 @@ class SettleRefusesWhatIsNotFinal(unittest.TestCase):
 
     def test_unconfirmed_receive_or_other_destination_is_never_credited(self):
         for bad, verdict in (({"confirmed": "false"}, cb.INCONCLUSIVE),
-                             ({"subtype": "receive"}, cb.REFUSABLE_NOT_PAYMENT),
+                             ({"subtype": "receive"}, cb.INCONCLUSIVE),  # not shown on pay_to
+                             ({"subtype": "receive", "block_account": "nano_3other"},
+                              cb.REFUSABLE_NOT_PAYMENT),
                              ({"link_as_account": "nano_3other"}, cb.REFUSABLE_NOT_PAYMENT),
                              ({"amount": 1.0}, cb.INCONCLUSIVE)):
             s = svc()
@@ -49,6 +51,17 @@ class SettleRefusesWhatIsNotFinal(unittest.TestCase):
             self.assertEqual(v["verdict"], verdict, bad)
             self.assertNotIn(v["verdict"], (cb.MATCHED, cb.PENDING_DELIVERY))
             self.assertIn(verdict, qs.REFUSALS)
+
+
+    def test_receive_on_pay_to_from_its_history_is_settled(self):
+        s = svc()
+        q = s.quote(250, qid())
+        entry = {"type": "receive", "account": "nano_3buyer", "hash": "a" * 64, "confirmed": "true",
+                 "amount": q["amount_raw"], "local_timestamp": str(T[0] + 5)}
+        self.assertEqual(s.settle(entry)["verdict"], cb.INCONCLUSIVE)
+        v = s.settle(entry, account=PAYTO)
+        self.assertIn(v["verdict"], (cb.MATCHED, cb.PENDING_DELIVERY))
+        self.assertEqual(v["block"], "A" * 64)
 
 
 class Quote(unittest.TestCase):

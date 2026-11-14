@@ -30,8 +30,9 @@ REFUSALS = {
     cb.REFUSABLE_WRONG_AMOUNT: "amount differs from amount_raw (even by 1 raw): refuse, refund the same raw amount",
     cb.DUPLICATE_REFUND_DUE: "a second exact payment for a quote already credited: refund within refund_window_s",
     cb.UNATTRIBUTED: "no open quote owns this tail: not credited to anyone",
-    cb.INCONCLUSIVE: "block not confirmed, or the reply is malformed (amount not integer raw): not credited; re-read later",
-    cb.REFUSABLE_NOT_PAYMENT: "not a send block to pay_to (a receive, or another destination): never credited",
+    cb.INCONCLUSIVE: ("block not confirmed, the reply is malformed (amount not integer raw, hash not 64 hex, timestamp "
+                      "missing or 0), or a receive not shown to be on pay_to: not credited; re-read or pass account=pay_to"),
+    cb.REFUSABLE_NOT_PAYMENT: "not a payment into pay_to (a send elsewhere, a receive on another account, a change): never credited",
 }
 
 
@@ -68,11 +69,14 @@ class QuoteService:
         self._usd[quote_id] = out
         return dict(out)
 
-    def settle(self, block):
-        """Judge a block someone already sent, as block_info returns it: {hash, amount, local_timestamp,
-        confirmed, subtype, link_as_account or contents.link_as_account}. Only a confirmed send to pay_to of the
-        exact integer amount_raw is credited. Nothing is sent or signed."""
-        return self.ledger.credit(block)
+    def settle(self, block, *, block_hash=None, account=None, source=None):
+        """Judge a payment block someone already sent, in either shape call_binding.QuoteLedger.credit takes:
+        the buyer's send to pay_to (block_info, with block_hash= when the reply has no "hash", or an
+        account_history raw=true entry; hex `link` is decoded), or pay_to's own receive of it (shown to be on pay_to
+        by the reply's own account field, by account=pay_to for an entry of pay_to's account_history, or by
+        source= the send it pockets). Only a confirmed payment into pay_to of the exact integer amount_raw is
+        credited. Nothing is sent or signed."""
+        return self.ledger.credit(block, block_hash=block_hash, account=account, source=source)
 
     def _sweep(self):
         """Release tails of quotes that expired unpaid, so the tail space does not fill up."""

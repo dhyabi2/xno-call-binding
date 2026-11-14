@@ -33,6 +33,14 @@ class T(unittest.TestCase):
             mm = json.loads(json.dumps(m)); mm["payment_mandate_contents"]["payment_response"]["details"][k] = v
             self.assertTrue(M.check(mm), k)
         self.assertEqual(M.check(m), []); self.assertIsInstance(d, dict)
+    def test_huge_amount_string_is_a_refusal_not_a_crash(self):
+        m = M.build("m", ADDR, 5, "R", H)
+        m["payment_mandate_contents"]["payment_response"]["details"]["accepted"]["amount"] = "1" * 5000
+        self.assertIn("accepted.amount must be integer raw", M.check(m))
+    def test_bool_total_value_is_refused(self):
+        m = M.build("m", ADDR, 5, "R", H)
+        m["payment_mandate_contents"]["payment_details_total"]["amount"]["value"] = True
+        self.assertIn("total.amount.value wrong type", M.check(m))
     def test_cli_check_roundtrip(self):
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False); json.dump(M.build("m", ADDR, 5, "R", H), f); f.close()
         self.assertEqual(M.main(["--check", f.name]), 0)

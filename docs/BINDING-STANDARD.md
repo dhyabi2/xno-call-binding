@@ -95,6 +95,23 @@ required on the retry.
 | Block time after `expires_at` | `refusable_late` | refund; evidence is both timestamps |
 | Amount != expected raw (short or over) | `refusable_wrong_amount` | refund; evidence is expected and paid |
 | Confirmed but response not delivered | `pending_delivery` | keep distinct from "unpaid"; retry with `order_id` |
+| Not confirmed, or the reply cannot be read (amount not integer raw or over 40 digits, hash not 64 hex, block time missing or 0), or a receive not shown to be on `payTo` | `inconclusive` | credit nothing; re-read later or supply the missing proof |
+| A send to another account, a receive on another account, a change/epoch block | `refusable_not_payment` | credit nothing; it is not a payment to this seller |
+
+`call_binding.QuoteLedger.credit` accepts a payment in either of its two shapes, straight from a node:
+
+- **the buyer's send**: `block_info` of the send (it has no `hash` key, so pass the hash you asked for as
+  `block_hash=`), or an `account_history raw=true` entry. Subtype `send`; destination `link_as_account` (top level
+  or `contents`) or the hex `link` decoded to an account, all agreeing and equal to `payTo`.
+- **`payTo`'s receive of it**: `block_info` of the receive, or an `account_history` entry of `payTo` (in a
+  `raw=false` entry `account` is the *sender*: pass `account=payTo` to say whose history it is). It is credited
+  only when it is shown to be on `payTo`: the reply's own account (`block_account`, `contents.account`, or
+  `account` of a `raw=true` entry) is `payTo`, or the caller passes `account=payTo`, or `source=` is the confirmed
+  send the receive's `link` names, paying `payTo` the same amount. A stated account other than `payTo` is refused.
+
+The hash is compared upper-case, so a re-read in another case is the same block. A send and the receive that
+pockets it are one payment (keyed by the send's hash). A receive that does not name its send, next to a credited
+send for the same quote, is `inconclusive`, never `duplicate_refund_due`.
 
 Always: integer raw only (`1 XNO = 10**30`; refuse floats), use the **block's** time for window
 checks, wait for confirmation, bound node lookups (timeout, response size), and refuse plain-HTTP

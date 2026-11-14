@@ -48,6 +48,8 @@ import hashlib
 import hmac
 import json
 
+from binding_options import pubkey_to_account as _account_of_key
+
 RAW_PER_XNO = 10**30
 
 # The tail is the low-order raw digits reserved for binding. 10**21 raw is 1e-9 XNO, which at
@@ -136,7 +138,13 @@ REFUND_OVERDUE = "refund_overdue"
 REFUNDED = "refunded"
 UNATTRIBUTED = "unattributed"          # no open quote owns this tail
 INCONCLUSIVE = "inconclusive"          # not confirmed, or the reply is malformed: never credited
-REFUSABLE_NOT_PAYMENT = "refusable_not_payment"  # not a send block, or not to this payto
+REFUSABLE_NOT_PAYMENT = "refusable_not_payment"  # not a payment to this payto (other account, change...)
+
+# Longest digit string read as raw. The whole XNO supply is under 2**128 raw (39 digits); a longer
+# string is not an amount, and int() of a several-thousand-digit string raises on Python 3.11+.
+MAX_DIGITS = 40
+
+_HEX = frozenset("0123456789abcdefABCDEF")
 
 
 def _int_raw(value):
@@ -144,23 +152,98 @@ def _int_raw(value):
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
-        return value if value >= 0 else None
-    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return value if 0 <= value < 10**MAX_DIGITS else None
+    if (isinstance(value, str) and value.isascii() and value.isdigit()
+            and len(value) <= MAX_DIGITS):
         return int(value)
     return None
 
 
-def _destination(block: dict):
-    """link_as_account from the reply, or from its contents; None if absent or contradictory."""
-    top = block.get("link_as_account")
+def _is_confirmed(value) -> bool:
+    """The node's own word that the block is cemented: True or the string "true", nothing else."""
+    return value is True or value == "true"
+
+
+def _hash64(value):
+    """A 64-hex block hash, upper-cased so case never makes a second block; None otherwise."""
+    if isinstance(value, str) and len(value) == 64 and set(value) <= _HEX:
+        return value.upper()
+    return None
+
+
+def _account(value):
+    """A nano_ account string; the legacy xrb_ prefix names the same key. None if not a string."""
+    if not isinstance(value, str) or not value:
+        return None
+    if value.startswith("xrb_"):
+        return "nano_" + value[4:]
+    return value
+
+
+def _agree(values):
+    """The one value all present (non-None) candidates share; None if none is present, and the
+    marker _CONFLICT when two present candidates differ."""
+    found = None
+    for v in values:
+        if v is None:
+            continue
+        if found is not None and v != found:
+            return _CONFLICT
+        found = v
+    return found
+
+
+_CONFLICT = object()
+
+
+def _contents(block: dict):
+    """The json_block contents object, {} when absent; None when present but not an object."""
     contents = block.get("contents")
-    inner = contents.get("link_as_account") if isinstance(contents, dict) else None
-    if contents is not None and not isinstance(contents, dict):
-        return None
-    if top is not None and inner is not None and top != inner:
-        return None
-    found = top if top is not None else inner
-    return found if isinstance(found, str) and found else None
+    if contents is None:
+        return {}
+    return contents if isinstance(contents, dict) else None
+
+
+def _kind(block: dict, contents: dict):
+    """'send', 'receive' or something else, from block_info / raw history (subtype) or a
+    raw=false account_history entry (type is send/receive there)."""
+    kind = block.get("subtype")
+    if kind is None and block.get("type") in ("send", "receive"):
+        kind = block["type"]
+    if kind == "open":
+        kind = "receive"  # the first receive on an account
+    return kind
+
+
+def _raw_shape(block: dict) -> bool:
+    """True for block_info contents or an account_history raw=true entry, where `account` is
+    the block's own account; False for raw=false history, where it is the counterparty."""
+    return block.get("type") == "state"
+
+
+def _link_hex(block: dict, contents: dict):
+    """The block's link field as a 64-hex value (top level or contents); _CONFLICT if they differ."""
+    return _agree([_hash64(block.get("link")), _hash64(contents.get("link"))])
+
+
+def _destination(block: dict, contents: dict):
+    """Where an outgoing transfer lands: link_as_account (top or contents) or the hex link decoded
+    to an account. None if absent, _CONFLICT if any two of them disagree."""
+    link = _link_hex(block, contents)
+    if link is _CONFLICT:
+        return _CONFLICT
+    decoded = _account_of_key(bytes.fromhex(link)) if link is not None else None
+    for v in (block.get("link_as_account"), contents.get("link_as_account")):
+        if v is not None and _account(v) is None:
+            return _CONFLICT
+    return _agree([_account(block.get("link_as_account")),
+                   _account(contents.get("link_as_account")), decoded])
+
+
+def _own_account(block: dict, contents: dict):
+    """The account the block itself is on, where the reply states it; None or _CONFLICT."""
+    top = _account(block.get("account")) if _raw_shape(block) else None
+    return _agree([_account(block.get("block_account")), _account(contents.get("account")), top])
 
 
 def _not_credited(verdict: str, block_hash, why: str) -> dict:
@@ -184,8 +267,11 @@ class QuoteLedger:
         self.refund_window_s = refund_window_s
         self._quotes: dict[str, dict] = {}
         self._tails: dict[int, str] = {}          # open tail -> quote_id
-        self._blocks: dict[str, str] = {}         # block hash -> quote_id (one-to-one)
+        self._blocks: dict[str, str] = {}         # payment key -> quote_id (one-to-one)
         self._credited: set[str] = set()          # quote ids that already took a payment
+        self._credit_key: dict[str, str] = {}     # quote_id -> the payment key it took
+        self._linked: dict[str, bool] = {}        # payment key -> keyed by the transfer's hash?
+        self._aliases: dict[str, str] = {}        # any block hash seen -> its payment key
 
     def open_quote(self, quote_id: str, *, price_raw: int, expires_at: int) -> dict:
         """Register a quote, or refuse it because its tail is already in flight.
@@ -224,59 +310,124 @@ class QuoteLedger:
             raise BindingError(f"unknown quote {quote_id[:12]}")
         self._quotes[quote_id]["delivered"] = True
 
-    def credit(self, block: dict) -> dict:
-        """Assign one received block to at most one quote and return the verdict.
+    def credit(self, block: dict, *, block_hash=None, account=None, source=None) -> dict:
+        """Assign one payment block to at most one quote and return the verdict.
 
-        `block` is what a node's block_info already gives: {"hash", "amount" (raw, integer
-        string or int), "local_timestamp", "confirmed" ("true" or True), "subtype" ("send"),
-        "link_as_account" or "contents": {"link_as_account"}}. Only a confirmed send to this
-        ledger's payto, of exactly the bound raw amount, inside the window, is ever credited;
-        anything else returns `inconclusive` or `refusable_not_payment` and credits nothing.
+        Two shapes of the same payment are accepted, both straight from a node:
+
+        (a) The buyer's SEND to payto, as block_info gives it (no "hash" key: pass the hash you
+            asked for as `block_hash`) or as an account_history raw=true entry. It needs
+            "subtype": "send" and a destination equal to payto, read from link_as_account (top
+            level or contents) or from the hex `link` decoded to an account; if several are
+            present they must agree.
+
+        (b) payto's own RECEIVE of it ("subtype"/"type" "receive" or "open"). It is credited only
+            when it is shown to be on payto: the reply names its own account (block_info's
+            block_account or contents.account, or `account` of a raw=true history entry) and that
+            is payto; or the caller passes account=payto because the entry came from payto's own
+            account_history (in a raw=false entry `account` is the SENDER and proves nothing); or
+            the caller passes `source`, the block_info reply of the send the receive pockets, and
+            that is a confirmed send of the same amount to payto whose hash is the receive's link.
+            A stated account other than payto is refused whatever the caller says.
+
+        Common to both: "hash" (64 hex, any case) or `block_hash`, "amount" (integer raw, an int
+        or a digit string of at most 40 digits), "local_timestamp" (a positive integer; 0 or
+        missing is inconclusive, since the window cannot be checked), "confirmed" (True or
+        "true"). Only a confirmed payment to this ledger's payto, of exactly the bound raw amount,
+        inside the window, is ever credited; anything else returns `inconclusive` or
+        `refusable_not_payment` and credits nothing.
+
+        A send and payto's receive of it are one payment: a receive whose link names an already
+        credited send is a replay, not a duplicate. A receive that does not name its send (a
+        raw=false history entry) next to a credited send, or the reverse, is `inconclusive`, never
+        `duplicate_refund_due`; feed one ledger one shape, or receives that carry their link.
         Nothing here is signed or broadcast.
         """
         if not isinstance(block, dict):
             raise BindingError("block must be a dict as a node returns it")
-        for field in ("hash", "amount", "local_timestamp"):
-            if field not in block:
-                raise BindingError(f"block is missing {field}")
-        block_hash = block["hash"]
+        if "amount" not in block:
+            raise BindingError("block is missing amount")
+        if "hash" not in block and block_hash is None:
+            raise BindingError("block is missing hash (pass block_hash= for a block_info reply)")
 
-        # Nothing is credited unless the node's own reply says it is final, it is an outgoing
-        # transfer, it lands on this ledger's payto, and its amount is integer raw. Anything
-        # else is refused here, before a tail is even looked up, so it can never be credited.
+        # The hash: from the reply, or from the block_info request. Upper-cased, so a re-read in
+        # another case is the same block; anything that is not 64 hex is refused, not a crash.
+        shown = [block.get("hash")] if "hash" in block else []
+        if block_hash is not None:
+            shown.append(block_hash)
+        hashes = [_hash64(h) for h in shown]
+        if any(h is None for h in hashes):
+            return _not_credited(INCONCLUSIVE, None, "block hash is not 64 hex characters")
+        if len(set(hashes)) != 1:
+            return _not_credited(INCONCLUSIVE, hashes[0],
+                                 "the reply's hash is not the hash that was asked for")
+        this_hash = hashes[0]
+
+        # Nothing is credited unless the node's own reply says it is final, it is a transfer into
+        # this ledger's payto, and its amount is integer raw. Anything else is refused here,
+        # before a tail is even looked up, so it can never be credited.
         amount_raw = _int_raw(block["amount"])
         if amount_raw is None:
-            return _not_credited(INCONCLUSIVE, block_hash,
-                                 "amount is not integer raw (a float, bool or non-numeric value)")
-        at = _int_raw(block["local_timestamp"])
-        if at is None:
-            return _not_credited(INCONCLUSIVE, block_hash, "local_timestamp is not an integer")
-        confirmed = block.get("confirmed")
-        if not (confirmed is True or confirmed == "true"):
-            return _not_credited(INCONCLUSIVE, block_hash,
+            return _not_credited(INCONCLUSIVE, this_hash,
+                                 "amount is not integer raw (a float, bool, non-numeric or too long)")
+        at = _int_raw(block.get("local_timestamp"))
+        if at is None or at == 0:
+            return _not_credited(INCONCLUSIVE, this_hash,
+                                 "local_timestamp is missing, zero or not an integer: the window "
+                                 "cannot be checked")
+        if not _is_confirmed(block.get("confirmed")):
+            return _not_credited(INCONCLUSIVE, this_hash,
                                  "block is not confirmed by the node; it is not final yet")
-        if block.get("subtype") != "send":
-            return _not_credited(REFUSABLE_NOT_PAYMENT, block_hash,
-                                 "block subtype is %r, not a 'send' to payto" % block.get("subtype"))
-        destination = _destination(block)
-        if destination is None:
-            return _not_credited(INCONCLUSIVE, block_hash,
-                                 "block names no destination (link_as_account)")
-        if destination != self.payto:
-            return _not_credited(REFUSABLE_NOT_PAYMENT, block_hash,
-                                 "block pays another account, not this ledger's payto")
+        contents = _contents(block)
+        if contents is None:
+            return _not_credited(INCONCLUSIVE, this_hash, "block contents is not an object")
+        payto = _account(self.payto)
+        kind = _kind(block, contents)
 
-        # Idempotent: re-reading the same block never changes or re-credits anything.
-        if block_hash in self._blocks:
-            prior = self._blocks[block_hash]
-            return self._verdict(prior, block_hash, amount_raw, at, replay=True)
+        if kind == "send":
+            destination = _destination(block, contents)
+            if destination is _CONFLICT:
+                return _not_credited(INCONCLUSIVE, this_hash,
+                                     "the block's link fields name different destinations")
+            if destination is None:
+                return _not_credited(INCONCLUSIVE, this_hash,
+                                     "block names no destination (link_as_account or link)")
+            if destination != payto:
+                return _not_credited(REFUSABLE_NOT_PAYMENT, this_hash,
+                                     "block pays another account, not this ledger's payto")
+            key, linked = this_hash, True
+        elif kind == "receive":
+            refusal = self._receive_refusal(block, contents, this_hash, amount_raw,
+                                            account, source)
+            if refusal is not None:
+                return refusal
+            link = _link_hex(block, contents)
+            if link is None or link is _CONFLICT:
+                key, linked = this_hash, False   # a receive that does not name its send
+            else:
+                key, linked = link, True         # the payment is the send it pockets
+        else:
+            return _not_credited(REFUSABLE_NOT_PAYMENT, this_hash,
+                                 "block subtype is %r, not a payment into payto" % kind)
+
+        # Idempotent: re-reading the same block (or a send and its receive) never changes or
+        # re-credits anything.
+        if this_hash in self._aliases:
+            key = self._aliases[this_hash]
+        if key in self._blocks:
+            prior = self._blocks[key]
+            self._aliases[this_hash] = key
+            if self._credit_key.get(prior) != key:
+                # a re-read of a duplicate stays a duplicate; it never turns into the credit
+                return self._duplicate(prior, this_hash, amount_raw, at, replay=True)
+            return self._verdict(prior, key, amount_raw, at, replay=True, shown=this_hash)
 
         tail = tail_of_amount(amount_raw)
         quote_id = self._tails.get(tail)
         if quote_id is None:
             return {
                 "verdict": UNATTRIBUTED,
-                "block": block_hash,
+                "block": this_hash,
                 "tail": tail,
                 "why": "no open quote holds this tail",
             }
@@ -285,7 +436,7 @@ class QuoteLedger:
         if amount_raw != record["expected_raw"]:
             return {
                 "verdict": REFUSABLE_WRONG_AMOUNT,
-                "block": block_hash,
+                "block": this_hash,
                 "quote_id": quote_id,
                 "expected_raw": str(record["expected_raw"]),
                 "paid_raw": str(amount_raw),
@@ -294,7 +445,7 @@ class QuoteLedger:
         if at > record["expires_at"]:
             return {
                 "verdict": REFUSABLE_LATE,
-                "block": block_hash,
+                "block": this_hash,
                 "quote_id": quote_id,
                 "expired_at": record["expires_at"],
                 "paid_at": at,
@@ -303,23 +454,76 @@ class QuoteLedger:
 
         # Exact, in window. One-to-one: a second such payment is a duplicate, not a credit.
         if quote_id in self._credited:
-            self._blocks[block_hash] = quote_id
-            return {
-                "verdict": DUPLICATE_REFUND_DUE,
-                "block": block_hash,
-                "quote_id": quote_id,
-                "refund_due_by": at + self.refund_window_s,
-                "refund_amount_raw": str(amount_raw),
-                "why": "quote already credited to an earlier block; this one is refundable",
-            }
+            if self._linked[self._credit_key[quote_id]] != linked:
+                return _not_credited(INCONCLUSIVE, this_hash,
+                                     "the quote is already credited to a block of the other shape; "
+                                     "this may be the same payment seen as the transfer and as "
+                                     "payto's receive (pass a receive that carries its link)")
+            self._blocks[key] = quote_id
+            self._linked[key] = linked
+            self._aliases[this_hash] = key
+            return self._duplicate(quote_id, this_hash, amount_raw, at)
 
         self._credited.add(quote_id)
-        self._blocks[block_hash] = quote_id
-        return self._verdict(quote_id, block_hash, amount_raw, at)
+        self._credit_key[quote_id] = key
+        self._blocks[key] = quote_id
+        self._linked[key] = linked
+        self._aliases[this_hash] = key
+        return self._verdict(quote_id, key, amount_raw, at, shown=this_hash)
 
-    def _verdict(self, quote_id, block_hash, amount_raw, at, replay=False) -> dict:
+    def _duplicate(self, quote_id, this_hash, amount_raw, at, replay=False) -> dict:
+        return {
+            "verdict": DUPLICATE_REFUND_DUE,
+            "block": this_hash,
+            "quote_id": quote_id,
+            "refund_due_by": at + self.refund_window_s,
+            "refund_amount_raw": str(amount_raw),
+            "replay": replay,
+            "why": "quote already credited to an earlier block; this one is refundable",
+        }
+
+    def _receive_refusal(self, block, contents, this_hash, amount_raw, account, source):
+        """None if this receive is shown to be on payto; otherwise the refusal verdict."""
+        payto = _account(self.payto)
+        own = _own_account(block, contents)
+        if own is _CONFLICT:
+            return _not_credited(INCONCLUSIVE, this_hash,
+                                 "the reply names two different accounts for the block")
+        if own is not None and own != payto:
+            return _not_credited(REFUSABLE_NOT_PAYMENT, this_hash,
+                                 "the receive is on another account, not this ledger's payto")
+        if account is not None and _account(account) != payto:
+            return _not_credited(REFUSABLE_NOT_PAYMENT, this_hash,
+                                 "the caller says this entry is from another account's history")
+        if own == payto or (account is not None and _account(account) == payto):
+            return None
+        if source is None:
+            return _not_credited(INCONCLUSIVE, this_hash,
+                                 "nothing shows this receive is on payto: pass account=payto for "
+                                 "an entry of payto's account_history, or source= the send")
+        if not isinstance(source, dict):
+            return _not_credited(INCONCLUSIVE, this_hash, "source must be a block_info reply")
+        src_contents = _contents(source)
+        link = _link_hex(block, contents)
+        if (src_contents is None or link is None or link is _CONFLICT
+                or _hash64(source.get("hash")) != link):
+            return _not_credited(INCONCLUSIVE, this_hash,
+                                 "source is not the block this receive's link names")
+        if not _is_confirmed(source.get("confirmed")):
+            return _not_credited(INCONCLUSIVE, this_hash, "source is not confirmed")
+        if _kind(source, src_contents) != "send":
+            return _not_credited(REFUSABLE_NOT_PAYMENT, this_hash, "source is not a transfer out")
+        if _destination(source, src_contents) != payto:
+            return _not_credited(REFUSABLE_NOT_PAYMENT, this_hash,
+                                 "source does not pay this ledger's payto")
+        if _int_raw(source.get("amount")) != amount_raw:
+            return _not_credited(INCONCLUSIVE, this_hash,
+                                 "source amount differs from the receive amount")
+        return None
+
+    def _verdict(self, quote_id, key, amount_raw, at, replay=False, shown=None) -> dict:
         record = self._quotes[quote_id]
-        first = self._blocks.get(block_hash) == quote_id
+        first = self._credit_key.get(quote_id) == key
         if first and quote_id in self._credited and not record["delivered"]:
             verdict = PENDING_DELIVERY
             why = "payment is final on the ledger; the call it bought is not delivered yet"
@@ -328,7 +532,7 @@ class QuoteLedger:
             why = "exact bound amount, inside the window, delivered"
         return {
             "verdict": verdict,
-            "block": block_hash,
+            "block": shown if shown is not None else key,
             "quote_id": quote_id,
             "paid_raw": str(amount_raw),
             "paid_at": at,

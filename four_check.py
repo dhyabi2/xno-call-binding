@@ -61,8 +61,10 @@ def artifact_match(artifact_sha256, file_bytes):
 def ledger(block_info_replies, payto, expect_raw):
     """block_info replies from >= 1 node. pass needs a confirmed send, link_as_account == payto, amount >= expect.
 
-    A reply that cannot be read (contents not an object, amount not integer raw) is inconclusive, never a pass
-    and never a fail; a definite mismatch from any node (not a send, wrong recipient, short) is a fail."""
+    A reply that cannot be read (contents missing or not an object, no subtype, no link_as_account, amount not
+    integer raw) or a node that has not confirmed the block yet is inconclusive, never a pass and never a fail;
+    a definite mismatch from any node (a block of another subtype, wrong recipient, short) is a fail.
+    `confirmed` counts only as True or the string "true"."""
     expect = _digits(expect_raw)
     if expect is None:
         return "inconclusive", "expected amount is not integer raw", None
@@ -71,14 +73,18 @@ def ledger(block_info_replies, payto, expect_raw):
         return "inconclusive", "no node returned the block", None
     verdicts, ts = set(), None
     for r in ok:
-        c = r.get("contents", {})
+        c = r.get("contents")
         amount = _digits(r.get("amount"))
         if not isinstance(c, dict):
             verdicts.add("malformed")
-        elif str(r.get("confirmed")).lower() != "true":
+        elif not (r.get("confirmed") is True or r.get("confirmed") == "true"):
             verdicts.add("unconfirmed")
+        elif r.get("subtype") is None:
+            verdicts.add("malformed")
         elif r.get("subtype") != "send":
             verdicts.add("not_send")
+        elif not isinstance(c.get("link_as_account"), str) or not c.get("link_as_account"):
+            verdicts.add("malformed")
         elif c.get("link_as_account") != payto:
             verdicts.add("wrong_recipient")
         elif amount is None:
@@ -90,20 +96,23 @@ def ledger(block_info_replies, payto, expect_raw):
             ts = r.get("local_timestamp")
     if verdicts == {"ok"}:
         return "pass", "confirmed send of >= expected amount to the expected account", ts
+    if verdicts & {"not_send", "wrong_recipient", "short"}:
+        return "fail", "nodes report: " + ",".join(sorted(verdicts)), None
     if verdicts == {"unconfirmed"}:
         return "inconclusive", "block not confirmed yet", None
-    if "malformed" in verdicts and not verdicts & {"not_send", "wrong_recipient", "short"}:
-        return "inconclusive", "a node reply could not be read: " + ",".join(sorted(verdicts)), None
-    return "fail", "nodes report: " + ",".join(sorted(verdicts)), None
+    return "inconclusive", "a node reply could not be read or is not final: " + ",".join(sorted(verdicts)), None
+
+
+MAX_DIGITS = 40  # the XNO supply is under 2**128 raw (39 digits); int() of a huge string raises on 3.11+
 
 
 def _digits(value):
-    """An int (not bool) or an ASCII digit string, as an int; None for anything else."""
+    """An int (not bool) or an ASCII digit string of at most 40 digits, as an int; None for anything else."""
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
-        return value if value >= 0 else None
-    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return value if 0 <= value < 10 ** MAX_DIGITS else None
+    if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= MAX_DIGITS:
         return int(value)
     return None
 

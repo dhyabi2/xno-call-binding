@@ -48,8 +48,28 @@ class T(unittest.TestCase):
         self.assertEqual(fc.ledger([reply(confirmed="false")], PAYTO, RAW)[0], "inconclusive")
 
     def test_receive_block_is_not_a_pass(self):
-        for subtype in ("receive", None):
-            self.assertEqual(fc.ledger([reply(subtype=subtype)], PAYTO, RAW)[0], "fail")
+        self.assertEqual(fc.ledger([reply(subtype="receive")], PAYTO, RAW)[0], "fail")
+        # no subtype at all is a reply that cannot be read, not a definite mismatch
+        self.assertEqual(fc.ledger([reply(subtype=None)], PAYTO, RAW)[0], "inconclusive")
+
+    def test_missing_fields_or_one_unconfirmed_node_is_inconclusive_not_fail(self):
+        r = reply(); del r["contents"]
+        self.assertEqual(fc.ledger([r], PAYTO, RAW)[0], "inconclusive")
+        r = reply(); del r["subtype"]
+        self.assertEqual(fc.ledger([r], PAYTO, RAW)[0], "inconclusive")
+        self.assertEqual(fc.ledger([reply(contents={"type": "state"})], PAYTO, RAW)[0], "inconclusive")
+        self.assertEqual(fc.ledger([reply(), reply(confirmed="false")], PAYTO, RAW)[0], "inconclusive")
+        # a definite mismatch still wins over an unconfirmed node
+        self.assertEqual(fc.ledger([reply(amount="1"), reply(confirmed="false")], PAYTO, RAW)[0], "fail")
+
+    def test_huge_digit_string_is_inconclusive_not_a_crash(self):
+        self.assertEqual(fc.ledger([reply(amount="1" * 5000)], PAYTO, RAW)[0], "inconclusive")
+        self.assertEqual(fc.ledger([reply()], PAYTO, "1" * 5000)[0], "inconclusive")
+
+    def test_confirmed_is_true_or_the_string_true_only(self):
+        self.assertEqual(fc.ledger([reply(confirmed=True)], PAYTO, RAW)[0], "pass")
+        for c in ("True", "TRUE", 1):
+            self.assertEqual(fc.ledger([reply(confirmed=c)], PAYTO, RAW)[0], "inconclusive", c)
 
     def test_malformed_reply_is_inconclusive_not_a_crash(self):
         for bad in (dict(contents="a string"), dict(contents=["x"]), dict(contents=None),

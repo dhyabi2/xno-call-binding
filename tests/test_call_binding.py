@@ -108,6 +108,11 @@ class BoscoRoteoThreeObjections(unittest.TestCase):
                             "local_timestamp": NOW + 10})
         self.assertTrue(again["replay"])
         self.assertEqual(again["quote_id"], qid)
+        # Re-reading the duplicate (in any case) stays a duplicate, never the credit.
+        dup = credit(led, {"hash": "f" * 64, "amount": str(rec["expected_raw"]),
+                          "local_timestamp": NOW + 20})
+        self.assertEqual(dup["verdict"], cb.DUPLICATE_REFUND_DUE)
+        self.assertTrue(dup["replay"])
 
     def test_6_tails_do_not_leak_order_sequence(self):
         # "may leak ordering patterns". A counter-derived tag gives 199 ascending steps over
@@ -232,7 +237,9 @@ class Controls(unittest.TestCase):
     def test_16_malformed_block_is_an_error_not_a_verdict(self):
         led = cb.QuoteLedger(payto=PAYTO)
         with self.assertRaises(cb.BindingError):
-            credit(led, {"hash": "0" * 64, "amount": "1"})  # no local_timestamp
+            credit(led, {"hash": "0" * 64, "local_timestamp": NOW})  # no amount
+        with self.assertRaises(cb.BindingError):
+            credit(led, {"amount": "1", "local_timestamp": NOW})  # no hash, none passed either
 
 
 class CreditOnlyFinalSendsToPayto(unittest.TestCase):
@@ -274,9 +281,13 @@ class CreditOnlyFinalSendsToPayto(unittest.TestCase):
         self.assertNotCredited(block, cb.INCONCLUSIVE)
 
     def test_19_receive_or_missing_subtype_is_not_credited(self):
-        for subtype in ("receive", "open", "change", None):
+        for subtype in ("change", "epoch", None):
             self.setUp()
             self.assertNotCredited(dict(self.good, subtype=subtype), cb.REFUSABLE_NOT_PAYMENT)
+        # a receive that nothing shows to be on payto is never credited (it may be on any account)
+        for subtype in ("receive", "open"):
+            self.setUp()
+            self.assertNotCredited(dict(self.good, subtype=subtype), cb.INCONCLUSIVE)
 
     def test_20_other_destination_is_not_credited(self):
         other = "nano_1111111111111111111111111111111111111111111111111111hifc8npp"
@@ -305,6 +316,183 @@ class CreditOnlyFinalSendsToPayto(unittest.TestCase):
         for ts in ("abc", "1.5", 1.5, None, True):
             self.setUp()
             self.assertNotCredited(dict(self.good, local_timestamp=ts), cb.INCONCLUSIVE)
+
+    def test_23_zero_or_missing_timestamp_is_inconclusive_not_on_time(self):
+        for ts in (0, "0"):
+            self.setUp()
+            self.assertNotCredited(dict(self.good, local_timestamp=ts), cb.INCONCLUSIVE)
+        self.setUp()
+        block = dict(self.good)
+        del block["local_timestamp"]
+        self.assertNotCredited(block, cb.INCONCLUSIVE)
+
+    def test_24_huge_digit_strings_are_inconclusive_not_a_crash(self):
+        self.assertNotCredited(dict(self.good, amount="1" * 5000), cb.INCONCLUSIVE)
+        self.setUp()
+        self.assertNotCredited(dict(self.good, amount="1" * 41), cb.INCONCLUSIVE)
+        self.setUp()
+        self.assertNotCredited(dict(self.good, local_timestamp="1" * 5000), cb.INCONCLUSIVE)
+
+    def test_25_hash_case_does_not_make_a_new_block(self):
+        self.assertEqual(self.led.credit(self.good)["verdict"], cb.MATCHED)
+        again = self.led.credit(dict(self.good, hash="b" * 64))
+        self.assertEqual(again["verdict"], cb.MATCHED, again)
+        self.assertTrue(again["replay"])
+        self.assertEqual(again["block"], "B" * 64)
+
+    def test_26_non_string_or_non_hex_hash_is_refused_not_a_crash(self):
+        for bad in (["B" * 64], None, 5, "B" * 63, "Z" * 64, "B" * 65, {"h": 1}):
+            self.setUp()
+            out = self.led.credit(dict(self.good, hash=bad))
+            self.assertEqual(out["verdict"], cb.INCONCLUSIVE, out)
+            self.assertNotIn(self.qid, self.led._credited)
+            self.assertEqual(self.led.credit(self.good)["verdict"], cb.MATCHED)
+
+    def test_27_confirmed_is_true_or_the_string_true_only(self):
+        for confirmed in ("TRUE", "yes", "1", 1.0):
+            self.setUp()
+            self.assertNotCredited(dict(self.good, confirmed=confirmed), cb.INCONCLUSIVE)
+
+
+SENDER = "nano_1111111111111111111111111111111111111111111111111111hifc8npp"
+OTHER = "nano_3t6k35gi95xu6tergt6p69ck76ogmitsa8mnijtpxm9fkcm736xtoncuohr3"
+PAYTO_KEY_HEX = "9D210035FA4CEFDA420232943006744E6BDF68DAD2A8640A86FFD3E109CCD77C"
+SRC = "5" * 64  # hash of the buyer's send that a receive on payto pockets
+
+
+class BothShapesOfAPayment(unittest.TestCase):
+    """A payment is a send to payto, or payto's own receive of it. Both are credited, once."""
+
+    def setUp(self):
+        self.led = cb.QuoteLedger(payto=PAYTO)
+        self.qid = quote()
+        self.rec = self.led.open_quote(self.qid, price_raw=PRICE, expires_at=NOW + 300)
+        self.led.mark_delivered(self.qid)
+        self.amount = str(self.rec["expected_raw"])
+
+    def history_receive(self, **kw):
+        # account_history of payto (raw=false): "account" is the SENDER, not payto
+        entry = {"type": "receive", "account": SENDER, "amount": self.amount,
+                 "local_timestamp": str(NOW + 10), "height": "7", "hash": "A" * 64,
+                 "confirmed": "true"}
+        entry.update(kw)
+        return entry
+
+    def info_receive(self, **kw):
+        # block_info of a receive on payto: no "hash" key, block_account is payto
+        reply = {"block_account": PAYTO, "amount": self.amount, "local_timestamp": str(NOW + 10),
+                 "confirmed": "true", "subtype": "receive",
+                 "contents": {"type": "state", "account": PAYTO, "link": SRC,
+                              "link_as_account": "nano_1ignored"}}
+        reply.update(kw)
+        return reply
+
+    def assertNothingCredited(self, out, verdict):
+        self.assertEqual(out["verdict"], verdict, out)
+        self.assertNotIn(self.qid, self.led._credited)
+
+    def test_28_receive_from_paytos_own_history_is_credited_when_caller_says_so(self):
+        out = self.led.credit(self.history_receive(), account=PAYTO)
+        self.assertEqual(out["verdict"], cb.MATCHED, out)
+        self.assertEqual(out["quote_id"], self.qid)
+
+    def test_29_history_receive_without_proof_it_is_on_payto_is_not_credited(self):
+        self.assertNothingCredited(self.led.credit(self.history_receive()), cb.INCONCLUSIVE)
+        # "account" in a raw=false history entry is the counterparty, never proof of payto
+        self.assertNothingCredited(self.led.credit(self.history_receive(account=PAYTO)),
+                                   cb.INCONCLUSIVE)
+        self.assertNothingCredited(self.led.credit(self.history_receive(), account=OTHER),
+                                   cb.REFUSABLE_NOT_PAYMENT)
+
+    def test_30_block_info_receive_on_payto_uses_the_requested_hash(self):
+        out = self.led.credit(self.info_receive(), block_hash="a" * 64)
+        self.assertEqual(out["verdict"], cb.MATCHED, out)
+        self.assertEqual(out["block"], "A" * 64)
+
+    def test_31_receive_on_another_account_is_refused_even_if_caller_says_payto(self):
+        reply = self.info_receive(block_account=OTHER,
+                                  contents={"account": OTHER, "link": SRC})
+        self.assertNothingCredited(self.led.credit(reply, block_hash="A" * 64, account=PAYTO),
+                                   cb.REFUSABLE_NOT_PAYMENT)
+        # block_account and contents.account disagree: cannot tell whose block it is
+        reply = self.info_receive(contents={"account": OTHER, "link": SRC})
+        self.assertNothingCredited(self.led.credit(reply, block_hash="A" * 64), cb.INCONCLUSIVE)
+
+    def test_32_unconfirmed_or_non_integer_receive_is_not_credited(self):
+        for confirmed in ("false", None, "True"):
+            self.assertNothingCredited(
+                self.led.credit(self.history_receive(confirmed=confirmed), account=PAYTO),
+                cb.INCONCLUSIVE)
+        for amount in ("1.5", 1.5, True, "1" * 5000):
+            self.assertNothingCredited(
+                self.led.credit(self.history_receive(amount=amount), account=PAYTO),
+                cb.INCONCLUSIVE)
+
+    def test_33_paytos_own_outgoing_transfer_is_never_credited(self):
+        # account_history of payto, raw=false, a send OUT of payto: "account" is the destination
+        entry = self.history_receive(type="send", account=OTHER)
+        self.assertNotEqual(self.led.credit(entry, account=PAYTO)["verdict"], cb.MATCHED)
+        self.assertNotIn(self.qid, self.led._credited)
+        entry = self.history_receive(type="send", account=PAYTO)
+        self.assertNotEqual(self.led.credit(entry, account=PAYTO)["verdict"], cb.MATCHED)
+        self.assertNotIn(self.qid, self.led._credited)
+
+    def test_34_raw_history_receive_on_payto_is_credited(self):
+        entry = {"type": "state", "subtype": "receive", "account": PAYTO, "link": SRC,
+                 "amount": self.amount, "local_timestamp": str(NOW + 10), "hash": "A" * 64,
+                 "confirmed": "true"}
+        self.assertEqual(self.led.credit(entry)["verdict"], cb.MATCHED)
+
+    def test_35_raw_send_with_hex_link_only_is_decoded(self):
+        entry = {"type": "state", "subtype": "send", "account": SENDER, "link": PAYTO_KEY_HEX,
+                 "amount": self.amount, "local_timestamp": str(NOW + 10), "hash": "B" * 64,
+                 "confirmed": "true"}
+        self.assertEqual(self.led.credit(dict(entry, link="0" * 64))["verdict"],
+                         cb.REFUSABLE_NOT_PAYMENT)
+        self.assertEqual(self.led.credit(dict(entry, link_as_account=SENDER))["verdict"],
+                         cb.INCONCLUSIVE)  # hex link and link_as_account disagree
+        self.assertEqual(self.led.credit(dict(entry, link=PAYTO_KEY_HEX.lower()))["verdict"],
+                         cb.MATCHED)
+
+    def test_36_receive_proven_by_its_source_send(self):
+        source = {"hash": SRC, "subtype": "send", "confirmed": "true", "amount": self.amount,
+                  "local_timestamp": str(NOW + 5), "contents": {"link_as_account": PAYTO}}
+        reply = self.info_receive()
+        del reply["block_account"]
+        del reply["contents"]["account"]
+        for bad in (dict(source, contents={"link_as_account": OTHER}),
+                    dict(source, confirmed="false"), dict(source, hash="6" * 64),
+                    dict(source, amount="1"), dict(source, subtype="receive")):
+            self.assertNotEqual(
+                self.led.credit(reply, block_hash="A" * 64, source=bad)["verdict"], cb.MATCHED)
+            self.assertNotIn(self.qid, self.led._credited)
+        out = self.led.credit(reply, block_hash="A" * 64, source=source)
+        self.assertEqual(out["verdict"], cb.MATCHED, out)
+
+    def test_37_send_and_its_receive_are_one_payment_not_a_duplicate(self):
+        send = dict(FINAL, hash=SRC, amount=self.amount, local_timestamp=str(NOW + 5))
+        self.assertEqual(self.led.credit(send)["verdict"], cb.MATCHED)
+        out = self.led.credit(self.info_receive(), block_hash="A" * 64)
+        self.assertEqual(out["verdict"], cb.MATCHED, out)
+        self.assertTrue(out["replay"])
+        # a receive that does not say which send it pockets may be the same payment: never a
+        # duplicate refund, never a second credit
+        out = self.led.credit(self.history_receive(hash="C" * 64), account=PAYTO)
+        self.assertEqual(out["verdict"], cb.INCONCLUSIVE, out)
+        # a genuinely second send is still a duplicate
+        out = self.led.credit(dict(send, hash="D" * 64))
+        self.assertEqual(out["verdict"], cb.DUPLICATE_REFUND_DUE, out)
+
+    def test_38_requested_hash_must_agree_with_the_reply(self):
+        reply = self.info_receive(hash="A" * 64)
+        self.assertNothingCredited(self.led.credit(reply, block_hash="C" * 64), cb.INCONCLUSIVE)
+        self.assertNothingCredited(self.led.credit(self.info_receive(), block_hash=["A" * 64]),
+                                   cb.INCONCLUSIVE)
+
+    def test_39_xrb_prefix_names_the_same_account(self):
+        block = dict(FINAL, hash="B" * 64, amount=self.amount, local_timestamp=str(NOW + 10),
+                     link_as_account="xrb_" + PAYTO[5:])
+        self.assertEqual(self.led.credit(block)["verdict"], cb.MATCHED)
 
 
 if __name__ == "__main__":

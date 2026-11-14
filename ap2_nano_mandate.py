@@ -72,7 +72,10 @@ def check(m):
     tot = need(c, "payment_details_total", dict, "contents")
     if tot:
         need(tot, "label", str, "total"); amt = need(tot, "amount", dict, "total")
-        if amt: need(amt, "currency", str, "total.amount"); need(amt, "value", (int, float), "total.amount")
+        if amt:
+            need(amt, "currency", str, "total.amount")
+            if isinstance(amt.get("value"), bool): p.append("total.amount.value wrong type")
+            else: need(amt, "value", (int, float), "total.amount")
     r = need(c, "payment_response", dict, "contents")
     if r:
         need(r, "request_id", str, "response"); need(r, "method_name", str, "response")
@@ -82,7 +85,7 @@ def check(m):
         if not isinstance(a, dict): p.append("accepted must be an object"); return p
         if a.get("network") != "nano:mainnet": p.append("accepted.network must be nano:mainnet")
         if not valid_nano(a.get("payTo")): p.append("accepted.payTo not a valid Nano address")
-        if not (isinstance(a.get("amount"), str) and a["amount"].isascii() and a["amount"].isdigit()) or int(a["amount"]) <= 0: p.append("accepted.amount must be integer raw")
+        if not (isinstance(a.get("amount"), str) and a["amount"].isascii() and a["amount"].isdigit() and len(a["amount"]) <= 40) or int(a["amount"]) <= 0: p.append("accepted.amount must be integer raw")
         pl, st = d.get("payload", {}), d.get("settlement", {})
         if not isinstance(pl, dict) or not isinstance(st, dict): p.append("payload and settlement must be objects"); return p
         h = pl.get("block_hash")

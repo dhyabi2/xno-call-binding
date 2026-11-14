@@ -36,7 +36,9 @@ Wire format (what the buyer sends with the request, in place of an `X-PAYMENT` h
 4. `previous == frontier`. Fails: **stale_frontier** (the buyer's chain moved; not a forgery; the buyer re-signs).
 5. `now <= expires_at`. Fails: **expired** (do not broadcast).
 6. Otherwise **ready**: the verdict carries the `process` request body. The middleware adds `work` (`work_generate` on
-   the block hash; no key involved) and POSTs it, then waits for confirmation and calls `credit` as usual.
+   the block hash; no key involved) and POSTs it, then waits for confirmation and calls `credit` as usual: with
+   the confirmed send's `block_info` (and `block_hash=`), or with `pay_to`'s receive of it (`account=pay_to` for an
+   entry of `pay_to`'s `account_history`). Either shape credits the one payment once.
 
 It judges only. It has no signing function, no broadcast function and imports only `hashlib`. The hash and
 signature code is tested against a real mainnet block (`B749B757...`): it reproduces the chain's own hash and accepts

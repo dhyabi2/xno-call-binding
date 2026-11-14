@@ -92,5 +92,16 @@ class T(unittest.TestCase):
         r = self._with(local_timestamp=self)
         self.assertEqual((r["verdict"], r["age_days"]), ("confirmed", None))
 
+    def test_huge_digit_string_is_inconclusive_not_a_crash(self):
+        for changes in ({"amount": "1" * 5000}, {"local_timestamp": "1" * 5000}):
+            r = self._with(**changes)
+            self.assertEqual(r["verdict"], "inconclusive", changes)
+
+    def test_confirmed_is_true_or_the_string_true_only(self):
+        self.assertEqual(self._with(confirmed=True)["verdict"], "confirmed")
+        for c in ("True", "TRUE", 1):
+            self.assertEqual(self._with(confirmed=c)["verdict"], "not_confirmed_yet", c)
+
+
 if __name__ == "__main__":
     unittest.main()

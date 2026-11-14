@@ -106,7 +106,10 @@ that actually decide whether an integrator trusts a rail:
    many distinguishable payments, no memo field needed.
 4. The **seller** opens the quote, refusing the tail if it is already in flight, and thereafter
    assigns each received block to at most one quote, returning one of ten verdicts. Only a block the node reports as `confirmed`,
-   subtype `send`, `link_as_account == payTo`, with an integer raw amount, can ever be credited.
+   with an integer raw amount and a block time, can ever be credited, and only in one of two shapes: the buyer's
+   send whose destination (`link_as_account`, or the hex `link` decoded) is `payTo`, or `payTo`'s own receive of it,
+   shown to be on `payTo` by the reply's own account field, by `account=payTo` for an entry of `payTo`'s
+   `account_history`, or by the send it pockets (`source=`). A send and its receive are one payment, not two.
 
 The reserved tail is `10**21` raw wide — about `5.7e-11` XNO of overhead on a 0.05 XNO quote,
 which is less than a billionth of a cent. The price is always rounded **up** to a whole tail
