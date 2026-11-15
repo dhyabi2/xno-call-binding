@@ -47,6 +47,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import time
 
 from binding_options import pubkey_to_account as _account_of_key
 
@@ -139,6 +140,8 @@ REFUNDED = "refunded"
 UNATTRIBUTED = "unattributed"          # no open quote owns this tail
 INCONCLUSIVE = "inconclusive"          # not confirmed, or the reply is malformed: never credited
 REFUSABLE_NOT_PAYMENT = "refusable_not_payment"  # not a payment to this payto (other account, change...)
+REFUSABLE_EARLY = "refusable_early"    # block dated before the quote was opened: not a payment for it
+REFUSABLE_OTHER_QUOTE = "refusable_other_quote"  # the block pays (or would pay) a quote other than quote_id=
 
 # Longest digit string read as raw. The whole XNO supply is under 2**128 raw (39 digits); a longer
 # string is not an amount, and int() of a several-thousand-digit string raises on Python 3.11+.
@@ -260,28 +263,48 @@ class QuoteLedger:
 
     This class is the half bosco-roteo said a hash alone cannot replace - "unless the seller
     records the binding and prevents the same payment being credited twice".
+
+    Every payment is keyed by the hash of the buyer's transfer (a receive by the send it
+    pockets), and every key ever credited is remembered for the life of this object, also
+    after its quote's tail is released. That is what stops a released tail, re-held by a
+    later quote, from crediting an old payment again. The memory is IN-PROCESS ONLY: this
+    object does not persist anything, so replay protection holds only for its lifetime. A
+    seller that restarts must persist the credited keys itself (or use a persistent ledger
+    such as binding_options.Ledger); the opened_at lower bound below still refuses every
+    block dated before a quote re-opened after a restart.
     """
 
-    def __init__(self, *, payto: str, refund_window_s: int = REFUND_WINDOW_S) -> None:
+    def __init__(self, *, payto: str, refund_window_s: int = REFUND_WINDOW_S,
+                 clock=time.time) -> None:
         self.payto = payto
         self.refund_window_s = refund_window_s
+        self.clock = clock
         self._quotes: dict[str, dict] = {}
         self._tails: dict[int, str] = {}          # open tail -> quote_id
-        self._blocks: dict[str, str] = {}         # payment key -> quote_id (one-to-one)
+        self._blocks: dict[str, str] = {}         # payment key -> quote_id (one-to-one, never pruned)
         self._credited: set[str] = set()          # quote ids that already took a payment
         self._credit_key: dict[str, str] = {}     # quote_id -> the payment key it took
-        self._linked: dict[str, bool] = {}        # payment key -> keyed by the transfer's hash?
         self._aliases: dict[str, str] = {}        # any block hash seen -> its payment key
 
-    def open_quote(self, quote_id: str, *, price_raw: int, expires_at: int) -> dict:
+    def open_quote(self, quote_id: str, *, price_raw: int, expires_at: int,
+                   opened_at=None) -> dict:
         """Register a quote, or refuse it because its tail is already in flight.
 
         Refusing is the point. A scheme that merely hopes two concurrent orders do not
         share a tail is the collision bosco-roteo named; here the collision is detected at
         issue time, when it is still free to fix by re-minting the order key.
+
+        `opened_at` (unix seconds; default: this ledger's clock now) is the lower bound of the
+        window: a block dated before it was not made for this quote and is `refusable_early`,
+        never credited. A seller whose node clock may lag its own passes opened_at minus the
+        skew it tolerates.
         """
         if quote_id in self._quotes:
             raise BindingError(f"quote {quote_id[:12]} already open")
+        if opened_at is None:
+            opened_at = int(self.clock())
+        if not isinstance(opened_at, int) or isinstance(opened_at, bool) or opened_at <= 0:
+            raise BindingError("opened_at must be a positive int of unix seconds")
         tail = amount_tail(quote_id)
         if tail in self._tails:
             raise BindingError(
@@ -292,6 +315,7 @@ class QuoteLedger:
             "price_raw": price_raw,
             "expected_raw": bound_amount(price_raw, quote_id),
             "tail": tail,
+            "opened_at": opened_at,
             "expires_at": expires_at,
             "delivered": False,
         }
@@ -300,7 +324,8 @@ class QuoteLedger:
         return dict(record)
 
     def close_quote(self, quote_id: str) -> None:
-        """Release a tail so it can be reused by a later quote."""
+        """Release a tail so it can be reused by a later quote. The quote's credited payment
+        stays remembered, so the later quote can never be credited with it."""
         record = self._quotes.get(quote_id)
         if record is not None:
             self._tails.pop(record["tail"], None)
@@ -310,7 +335,8 @@ class QuoteLedger:
             raise BindingError(f"unknown quote {quote_id[:12]}")
         self._quotes[quote_id]["delivered"] = True
 
-    def credit(self, block: dict, *, block_hash=None, account=None, source=None) -> dict:
+    def credit(self, block: dict, *, block_hash=None, account=None, source=None,
+               source_hash=None, quote_id=None) -> dict:
         """Assign one payment block to at most one quote and return the verdict.
 
         Two shapes of the same payment are accepted, both straight from a node:
@@ -329,19 +355,30 @@ class QuoteLedger:
             the caller passes `source`, the block_info reply of the send the receive pockets, and
             that is a confirmed send of the same amount to payto whose hash is the receive's link.
             A stated account other than payto is refused whatever the caller says.
+            A receive must also name the send it pockets, because the payment is keyed by that
+            send's hash: its own `link` (block_info contents, raw=true history) or, for a
+            raw=false history entry that has no link, `source_hash=` (the hash of the send; a
+            block_info reply of the send has no "hash" key either, so pass it here). If the
+            link, source_hash and source["hash"] are present they must agree. A receive that
+            names no send is `inconclusive` and credits nothing.
 
         Common to both: "hash" (64 hex, any case) or `block_hash`, "amount" (integer raw, an int
         or a digit string of at most 40 digits), "local_timestamp" (a positive integer; 0 or
         missing is inconclusive, since the window cannot be checked), "confirmed" (True or
         "true"). Only a confirmed payment to this ledger's payto, of exactly the bound raw amount,
-        inside the window, is ever credited; anything else returns `inconclusive` or
+        inside the window [opened_at, expires_at], is ever credited; a block dated before the
+        quote was opened is `refusable_early`. Anything else returns `inconclusive` or
         `refusable_not_payment` and credits nothing.
 
+        `quote_id=` names the quote the caller is settling. Pass it: a block that belongs to, or
+        would be attributed to, any other quote then returns `refusable_other_quote` (which does
+        not say whose), so a buyer presenting someone else's payment never gets `matched`.
+        Without it a replay of an already credited payment returns that payment's own verdict
+        with "replay": True and the ORIGINAL quote_id - never deliver on it unless that quote_id
+        is the one being settled.
+
         A send and payto's receive of it are one payment: a receive whose link names an already
-        credited send is a replay, not a duplicate. A receive that does not name its send (a
-        raw=false history entry) next to a credited send, or the reverse, is `inconclusive`, never
-        `duplicate_refund_due`; feed one ledger one shape, or receives that carry their link.
-        Nothing here is signed or broadcast.
+        credited send is a replay, not a duplicate. Nothing here is signed or broadcast.
         """
         if not isinstance(block, dict):
             raise BindingError("block must be a dict as a node returns it")
@@ -395,17 +432,36 @@ class QuoteLedger:
             if destination != payto:
                 return _not_credited(REFUSABLE_NOT_PAYMENT, this_hash,
                                      "block pays another account, not this ledger's payto")
-            key, linked = this_hash, True
+            if source_hash is not None and _hash64(source_hash) != this_hash:
+                return _not_credited(INCONCLUSIVE, this_hash,
+                                     "source_hash is given for a transfer and is not its own hash")
+            key, caller_named = this_hash, False
         elif kind == "receive":
+            # The send this receive pockets: its link, source_hash=, source["hash"]; all must agree.
+            refs, named = [_link_hex(block, contents)], False
+            for given in (source_hash,
+                          source.get("hash") if isinstance(source, dict) else None):
+                if given is not None:
+                    if _hash64(given) is None:
+                        return _not_credited(INCONCLUSIVE, this_hash,
+                                             "source_hash / source hash is not 64 hex characters")
+                    refs.append(_hash64(given))
+                    named = True
+            pocketed = _agree(refs)
+            if pocketed is _CONFLICT:
+                return _not_credited(INCONCLUSIVE, this_hash,
+                                     "the receive's link, source_hash and source hash disagree")
             refusal = self._receive_refusal(block, contents, this_hash, amount_raw,
-                                            account, source)
+                                            account, source,
+                                            pocketed if named and refs[0] is not None else None)
             if refusal is not None:
                 return refusal
-            link = _link_hex(block, contents)
-            if link is None or link is _CONFLICT:
-                key, linked = this_hash, False   # a receive that does not name its send
-            else:
-                key, linked = link, True         # the payment is the send it pockets
+            if pocketed is None:
+                return _not_credited(INCONCLUSIVE, this_hash,
+                                     "the receive does not name the send it pockets (a raw=false "
+                                     "history entry has no link): pass source_hash= that send's hash")
+            key = pocketed                       # the payment is the send it pockets
+            caller_named = refs[0] is None       # only the caller's source_hash= names it
         else:
             return _not_credited(REFUSABLE_NOT_PAYMENT, this_hash,
                                  "block subtype is %r, not a payment into payto" % kind)
@@ -416,6 +472,9 @@ class QuoteLedger:
             key = self._aliases[this_hash]
         if key in self._blocks:
             prior = self._blocks[key]
+            if quote_id is not None and quote_id != prior:
+                return _not_credited(REFUSABLE_OTHER_QUOTE, this_hash,
+                                     "this payment is already assigned to another quote")
             self._aliases[this_hash] = key
             if self._credit_key.get(prior) != key:
                 # a re-read of a duplicate stays a duplicate; it never turns into the credit
@@ -423,14 +482,18 @@ class QuoteLedger:
             return self._verdict(prior, key, amount_raw, at, replay=True, shown=this_hash)
 
         tail = tail_of_amount(amount_raw)
-        quote_id = self._tails.get(tail)
-        if quote_id is None:
+        owner = self._tails.get(tail)
+        if owner is None:
             return {
                 "verdict": UNATTRIBUTED,
                 "block": this_hash,
                 "tail": tail,
                 "why": "no open quote holds this tail",
             }
+        if quote_id is not None and quote_id != owner:
+            return _not_credited(REFUSABLE_OTHER_QUOTE, this_hash,
+                                 "the amount's tail belongs to another quote, not quote_id")
+        quote_id = owner
 
         record = self._quotes[quote_id]
         if amount_raw != record["expected_raw"]:
@@ -451,23 +514,32 @@ class QuoteLedger:
                 "paid_at": at,
                 "why": "payment confirmed after the quote's validity window closed",
             }
+        if at < record["opened_at"]:
+            return {
+                "verdict": REFUSABLE_EARLY,
+                "block": this_hash,
+                "quote_id": quote_id,
+                "credited": False,
+                "opened_at": record["opened_at"],
+                "paid_at": at,
+                "why": "block is dated before the quote was opened; it was not made for this quote",
+            }
 
         # Exact, in window. One-to-one: a second such payment is a duplicate, not a credit.
         if quote_id in self._credited:
-            if self._linked[self._credit_key[quote_id]] != linked:
+            if caller_named:
+                # the send is named only by the caller: this may be the credited payment under a
+                # wrong source_hash, so it is never declared a second payment to refund
                 return _not_credited(INCONCLUSIVE, this_hash,
-                                     "the quote is already credited to a block of the other shape; "
-                                     "this may be the same payment seen as the transfer and as "
-                                     "payto's receive (pass a receive that carries its link)")
+                                     "the quote is already credited and this receive's send is named "
+                                     "only by source_hash=; it cannot be shown to be a second payment")
             self._blocks[key] = quote_id
-            self._linked[key] = linked
             self._aliases[this_hash] = key
             return self._duplicate(quote_id, this_hash, amount_raw, at)
 
         self._credited.add(quote_id)
         self._credit_key[quote_id] = key
         self._blocks[key] = quote_id
-        self._linked[key] = linked
         self._aliases[this_hash] = key
         return self._verdict(quote_id, key, amount_raw, at, shown=this_hash)
 
@@ -482,8 +554,12 @@ class QuoteLedger:
             "why": "quote already credited to an earlier block; this one is refundable",
         }
 
-    def _receive_refusal(self, block, contents, this_hash, amount_raw, account, source):
-        """None if this receive is shown to be on payto; otherwise the refusal verdict."""
+    def _receive_refusal(self, block, contents, this_hash, amount_raw, account, source, pocketed):
+        """None if this receive is shown to be on payto; otherwise the refusal verdict.
+        `pocketed` is the hash the caller names for `source` (source_hash= or source["hash"]),
+        already checked to equal the receive's own link; None when the caller names none or the
+        receive carries no link, and then `source` proves nothing, since nothing ties it to
+        this receive."""
         payto = _account(self.payto)
         own = _own_account(block, contents)
         if own is _CONFLICT:
@@ -504,11 +580,10 @@ class QuoteLedger:
         if not isinstance(source, dict):
             return _not_credited(INCONCLUSIVE, this_hash, "source must be a block_info reply")
         src_contents = _contents(source)
-        link = _link_hex(block, contents)
-        if (src_contents is None or link is None or link is _CONFLICT
-                or _hash64(source.get("hash")) != link):
+        if src_contents is None or pocketed is None:
             return _not_credited(INCONCLUSIVE, this_hash,
-                                 "source is not the block this receive's link names")
+                                 "source is not tied to this receive: the receive's own link must "
+                                 "name it, and source_hash= must give its hash")
         if not _is_confirmed(source.get("confirmed")):
             return _not_credited(INCONCLUSIVE, this_hash, "source is not confirmed")
         if _kind(source, src_contents) != "send":

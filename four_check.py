@@ -58,6 +58,13 @@ def artifact_match(artifact_sha256, file_bytes):
     return ("pass", "sha256 matches") if got == artifact_sha256.lower() else ("fail", "sha256 is %s" % got)
 
 
+def _nano(account):
+    """The legacy xrb_ prefix names the same key as nano_: compare accounts in the nano_ spelling."""
+    if isinstance(account, str) and account.startswith("xrb_"):
+        return "nano_" + account[4:]
+    return account
+
+
 def ledger(block_info_replies, payto, expect_raw):
     """block_info replies from >= 1 node. pass needs a confirmed send, link_as_account == payto, amount >= expect.
 
@@ -85,7 +92,7 @@ def ledger(block_info_replies, payto, expect_raw):
             verdicts.add("not_send")
         elif not isinstance(c.get("link_as_account"), str) or not c.get("link_as_account"):
             verdicts.add("malformed")
-        elif c.get("link_as_account") != payto:
+        elif _nano(c.get("link_as_account")) != _nano(payto):
             verdicts.add("wrong_recipient")
         elif amount is None:
             verdicts.add("malformed")
@@ -121,7 +128,7 @@ def signature_check(payto, ask_id, artifact_sha256, nonce, sig_hex):
     if not sig_hex:
         return "inconclusive", "no signature supplied"
     try:
-        ok = verify_signature(account_to_pubkey(payto), statement(ask_id, artifact_sha256, nonce), bytes.fromhex(sig_hex))
+        ok = verify_signature(account_to_pubkey(_nano(payto)), statement(ask_id, artifact_sha256, nonce), bytes.fromhex(sig_hex))
     except Exception as e:
         return "inconclusive", "unreadable input: %s" % e
     return ("pass", "recipient key signed this ask_id/hash/nonce") if ok else ("fail", "signature does not verify")

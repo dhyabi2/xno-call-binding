@@ -69,6 +69,8 @@ def facts(block_hash, nodes=NODES, rpc=_rpc, now=None):
     dest = contents.get("link_as_account")
     if not isinstance(dest, str) or not dest:
         return {"block": block_hash, "verdict": "inconclusive", "why": "malformed block_info: no destination"}
+    if dest.startswith("xrb_"):
+        dest = "nano_" + dest[4:]  # the legacy prefix names the same key; report one spelling
     if _digits(info.get("amount")) is None:
         return {"block": block_hash, "verdict": "inconclusive", "why": "malformed block_info: amount is not integer raw"}
     raw_ts = info.get("local_timestamp")

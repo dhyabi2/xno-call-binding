@@ -105,11 +105,16 @@ that actually decide whether an integrator trusts a rail:
 3. `amount_tail = PRF(quote_id) mod 10**6`, placed in the low-order raw digits. One address,
    many distinguishable payments, no memo field needed.
 4. The **seller** opens the quote, refusing the tail if it is already in flight, and thereafter
-   assigns each received block to at most one quote, returning one of ten verdicts. Only a block the node reports as `confirmed`,
-   with an integer raw amount and a block time, can ever be credited, and only in one of two shapes: the buyer's
-   send whose destination (`link_as_account`, or the hex `link` decoded) is `payTo`, or `payTo`'s own receive of it,
-   shown to be on `payTo` by the reply's own account field, by `account=payTo` for an entry of `payTo`'s
-   `account_history`, or by the send it pockets (`source=`). A send and its receive are one payment, not two.
+   assigns each received block to at most one quote, returning one of twelve verdicts. Only a block the node reports as `confirmed`,
+   with an integer raw amount and a block time between the quote's `opened_at` and `expires_at`, can ever be
+   credited, and only in one of two shapes: the buyer's send whose destination (`link_as_account`, or the hex `link`
+   decoded) is `payTo`, or `payTo`'s own receive of it, shown to be on `payTo` by the reply's own account field, by
+   `account=payTo` for an entry of `payTo`'s `account_history`, or by the send it pockets (`source=` with
+   `source_hash=`), and naming that send by its `link` or by `source_hash=` (a `raw=false` history entry has no
+   link). A send and its receive are one payment, keyed by the send's hash, not two. Pass `quote_id=` to say which
+   quote is being settled: a block that pays another quote is `refusable_other_quote`, never `matched`.
+   The ledger keeps every credited payment for its lifetime, but only in memory: replay protection across a
+   restart needs the seller to persist it (the `opened_at` bound still refuses every block older than the quote).
 
 The reserved tail is `10**21` raw wide — about `5.7e-11` XNO of overhead on a 0.05 XNO quote,
 which is less than a billionth of a cent. The price is always rounded **up** to a whole tail

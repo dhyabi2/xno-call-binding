@@ -47,6 +47,17 @@ class T(unittest.TestCase):
     def test_unconfirmed_is_not_a_pass(self):
         self.assertEqual(fc.ledger([reply(confirmed="false")], PAYTO, RAW)[0], "inconclusive")
 
+    def test_xrb_and_nano_prefixes_name_the_same_account(self):
+        xrb = "xrb_" + PAYTO[5:]
+        self.assertEqual(fc.ledger([reply(contents={"link_as_account": xrb})], PAYTO, RAW)[0], "pass")
+        self.assertEqual(fc.ledger([reply()], xrb, RAW)[0], "pass")
+        self.assertEqual(fc.signature_check(xrb, ASK, H, NONCE, sig())[0], "pass")
+        # another key is still a fail in either spelling
+        other = pubkey_to_account(b"\x01" * 32)
+        self.assertEqual(fc.ledger([reply(contents={"link_as_account": "xrb_" + other[5:]})], PAYTO, RAW)[0],
+                         "fail")
+        self.assertEqual(fc.signature_check("xrb_" + other[5:], ASK, H, NONCE, sig())[0], "fail")
+
     def test_receive_block_is_not_a_pass(self):
         self.assertEqual(fc.ledger([reply(subtype="receive")], PAYTO, RAW)[0], "fail")
         # no subtype at all is a reply that cannot be read, not a definite mismatch

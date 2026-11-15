@@ -102,6 +102,19 @@ class T(unittest.TestCase):
         for c in ("True", "TRUE", 1):
             self.assertEqual(self._with(confirmed=c)["verdict"], "not_confirmed_yet", c)
 
+    def test_xrb_destination_is_reported_and_queried_as_nano(self):
+        asked = []
+
+        def rpc(url, body):
+            if body["action"] == "block_info":
+                return {"confirmed": "true", "subtype": "send", "amount": "5", "local_timestamp": str(T0),
+                        "contents": {"type": "state", "link_as_account": "xrb_" + DEST[5:]}}
+            asked.append(body["account"])
+            return {"blocks": ""}
+        r = ff.facts(H, ["n"], rpc, now=T0)
+        self.assertEqual(r["destination"], DEST)
+        self.assertEqual(asked, [DEST])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -59,7 +59,9 @@ class SettleRefusesWhatIsNotFinal(unittest.TestCase):
         entry = {"type": "receive", "account": "nano_3buyer", "hash": "a" * 64, "confirmed": "true",
                  "amount": q["amount_raw"], "local_timestamp": str(T[0] + 5)}
         self.assertEqual(s.settle(entry)["verdict"], cb.INCONCLUSIVE)
-        v = s.settle(entry, account=PAYTO)
+        # a raw=false entry has no link: without the send's hash it cannot be keyed, so no credit
+        self.assertEqual(s.settle(entry, account=PAYTO)["verdict"], cb.INCONCLUSIVE)
+        v = s.settle(entry, account=PAYTO, source_hash="5e" * 32)
         self.assertIn(v["verdict"], (cb.MATCHED, cb.PENDING_DELIVERY))
         self.assertEqual(v["block"], "A" * 64)
 

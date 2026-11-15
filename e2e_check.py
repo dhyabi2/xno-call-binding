@@ -20,7 +20,7 @@ qid = cb.derive_quote_id(order_key, resource="/api/a2a/x402/audit",
 
 # What a node block_info reply says about a confirmed send to PAYTO (mocked here, not a real node).
 FINAL = {"confirmed": "true", "subtype": "send", "link_as_account": PAYTO}
-led = cb.QuoteLedger(payto=PAYTO)
+led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
 rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 300)
 
 print("quote id        ", qid[:32], "...")
@@ -38,7 +38,7 @@ ok = led.credit({**FINAL, "hash": "A" * 64, "amount": str(rec["expected_raw"]),
 print("1 exact in window ->", ok["verdict"], "|", ok["why"])
 
 # 2. late
-led2 = cb.QuoteLedger(payto=PAYTO)
+led2 = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
 q2 = cb.derive_quote_id(os.urandom(32), resource="/x", price_raw=PRICE, payto=PAYTO)
 r2 = led2.open_quote(q2, price_raw=PRICE, expires_at=NOW + 300)
 late = led2.credit({**FINAL, "hash": "B" * 64, "amount": str(r2["expected_raw"]),
@@ -47,7 +47,7 @@ print("2 paid late       ->", late["verdict"], "| expired", late["expired_at"],
       "paid", late["paid_at"])
 
 # 3. wrong amount
-led3 = cb.QuoteLedger(payto=PAYTO)
+led3 = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
 q3 = cb.derive_quote_id(os.urandom(32), resource="/x", price_raw=PRICE, payto=PAYTO)
 r3 = led3.open_quote(q3, price_raw=PRICE, expires_at=NOW + 300)
 wrong = led3.credit({**FINAL, "hash": "C" * 64, "amount": str(r3["expected_raw"] - cb.TAIL_UNIT),

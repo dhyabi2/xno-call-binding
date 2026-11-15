@@ -15,7 +15,10 @@ path that signs, sends or holds a key. The two price feeds are the only network 
 
 quote_id is opaque and buyer-derived (`usd_quote_id`), so a timeout after paying is recoverable: the buyer
 re-derives the id and the exact amount from its order key. A second open quote whose tail is already in flight
-is refused (409) rather than hoped away.
+is refused (409) rather than hoped away. A buyer may choose a quote_id whose tail equals a released one; that
+cannot re-credit an old payment, because the ledger remembers every credited payment for its lifetime and
+refuses every block dated before quoted_at. The ledger is in memory: persist it, or replay protection for
+payments older than the restart rests on the quoted_at bound alone.
 """
 import json
 import time
@@ -33,6 +36,8 @@ REFUSALS = {
     cb.INCONCLUSIVE: ("block not confirmed, the reply is malformed (amount not integer raw, hash not 64 hex, timestamp "
                       "missing or 0), or a receive not shown to be on pay_to: not credited; re-read or pass account=pay_to"),
     cb.REFUSABLE_NOT_PAYMENT: "not a payment into pay_to (a send elsewhere, a receive on another account, a change): never credited",
+    cb.REFUSABLE_EARLY: "block dated before quoted_at: not made for this quote, never credited; refund the same raw amount",
+    cb.REFUSABLE_OTHER_QUOTE: "the block pays a quote other than the quote_id being settled: never credited to this one",
 }
 
 
@@ -47,7 +52,7 @@ def usd_quote_id(order_key: bytes, *, resource: str, usd_cents: int, payto: str)
 class QuoteService:
     def __init__(self, payto, feeds, clock=time.time, max_cents=10_000_00):
         self.payto, self.feeds, self.clock, self.max_cents = payto, feeds, clock, max_cents
-        self.ledger = cb.QuoteLedger(payto=payto)
+        self.ledger = cb.QuoteLedger(payto=payto, clock=clock)
         self._usd = {}  # quote_id -> the quote dict, for the refund semantics
 
     def quote(self, usd_cents, quote_id):
@@ -60,7 +65,8 @@ class QuoteService:
         if quote_id in self._usd:  # idempotent: the same buyer re-asking inside the window gets the SAME quote
             return dict(self._usd[quote_id])
         q = uq.quote(usd_cents, self.feeds, now=self.clock())
-        rec = self.ledger.open_quote(quote_id, price_raw=int(q["amount_raw"]), expires_at=q["expires_at"])
+        rec = self.ledger.open_quote(quote_id, price_raw=int(q["amount_raw"]), expires_at=q["expires_at"],
+                                     opened_at=q["quoted_at"])
         out = {"quote_id": quote_id, "usd_cents": usd_cents, "price_micro_usd": q["price_micro_usd"],
                "base_amount_raw": q["amount_raw"], "amount_raw": str(rec["expected_raw"]), "tail": rec["tail"],
                "pay_to": self.payto, "quoted_at": q["quoted_at"], "expires_at": q["expires_at"],
@@ -69,14 +75,17 @@ class QuoteService:
         self._usd[quote_id] = out
         return dict(out)
 
-    def settle(self, block, *, block_hash=None, account=None, source=None):
+    def settle(self, block, *, block_hash=None, account=None, source=None, source_hash=None, quote_id=None):
         """Judge a payment block someone already sent, in either shape call_binding.QuoteLedger.credit takes:
         the buyer's send to pay_to (block_info, with block_hash= when the reply has no "hash", or an
         account_history raw=true entry; hex `link` is decoded), or pay_to's own receive of it (shown to be on pay_to
         by the reply's own account field, by account=pay_to for an entry of pay_to's account_history, or by
-        source= the send it pockets). Only a confirmed payment into pay_to of the exact integer amount_raw is
-        credited. Nothing is sent or signed."""
-        return self.ledger.credit(block, block_hash=block_hash, account=account, source=source)
+        source= the send it pockets); a receive must name that send by its link or by source_hash= (a raw=false
+        history entry has no link). Only a confirmed payment into pay_to of the exact integer amount_raw, dated
+        between quoted_at and expires_at, is credited. Pass quote_id= the quote being settled: a block that pays
+        another quote is then refusable_other_quote, never matched. Nothing is sent or signed."""
+        return self.ledger.credit(block, block_hash=block_hash, account=account, source=source,
+                                  source_hash=source_hash, quote_id=quote_id)
 
     def _sweep(self):
         """Release tails of quotes that expired unpaid, so the tail space does not fill up."""

@@ -4,7 +4,11 @@ A Nano block has no memo. A confirmed send proves that an amount reached an acco
 about which order it paid for. A seller needs three guarantees before it releases a response:
 
 1. **Bound** - the block belongs to exactly one issued order, and to the party that asked.
-2. **Single-use** - one block credits one order once, and the claim survives a restart.
+2. **Single-use** - one block credits one order once. The claim survives a restart only if the
+   seller persists it: `binding_options.Ledger` is sqlite-backed, but `call_binding.QuoteLedger` is
+   in memory, so its replay protection holds only for the life of the ledger object unless the
+   caller persists the credited block hashes (its `opened_at` bound still refuses any block dated
+   before a quote, including one re-opened after a restart).
 3. **Recoverable** - a lost response, a late payment or a duplicate has a defined outcome.
 
 This document gives three ways to bind, ranks them, and says which one to ship. Reference
@@ -76,7 +80,8 @@ primary key.** Flaws, each demonstrated by reviewers of live code:
 - **Not bound to the requester.** Anyone who sees the amount on the ledger can present the same
   block hash for a different request unless the proof also needs the order secret.
 - **In-memory replay set.** The claim set must be persistent with a window; a restart that
-  forgets claims lets every old block be replayed.
+  forgets claims lets every old block be replayed. `call_binding.QuoteLedger` is in memory: persist
+  its credited hashes, and keep the `opened_at` lower bound, which refuses any block older than its quote.
 
 If A is the only choice: random (not sequential) tag, tag-in-flight refusal, `order_id -> block
 hash` recorded at settle time with a UNIQUE constraint on the block hash, and the order secret
@@ -91,7 +96,9 @@ required on the retry.
 | Right order, right amount, block time <= expiry | `matched` | record `block_hash -> order_id` once |
 | Same block read again for the same order | `matched` | idempotent, no second credit |
 | Second block for an order already credited | `duplicate_refund_due` | refund the later block to its sender, never credit |
-| Same block claimed for another order | `duplicate_refund_due` | refused; claim stays with the first |
+| Same block claimed for another order (`quote_id=` given) | `refusable_other_quote` | refused, never credited; the claim stays with the first and the verdict does not name it |
+| Same block re-read without `quote_id=` | the first claim's verdict, `replay: true` | carries the ORIGINAL quote_id: deliver only if that is the quote being settled |
+| Block time before the quote's `opened_at` | `refusable_early` | not made for this quote; refund, never credit |
 | Block time after `expires_at` | `refusable_late` | refund; evidence is both timestamps |
 | Amount != expected raw (short or over) | `refusable_wrong_amount` | refund; evidence is expected and paid |
 | Confirmed but response not delivered | `pending_delivery` | keep distinct from "unpaid"; retry with `order_id` |
@@ -107,11 +114,15 @@ required on the retry.
   `raw=false` entry `account` is the *sender*: pass `account=payTo` to say whose history it is). It is credited
   only when it is shown to be on `payTo`: the reply's own account (`block_account`, `contents.account`, or
   `account` of a `raw=true` entry) is `payTo`, or the caller passes `account=payTo`, or `source=` is the confirmed
-  send the receive's `link` names, paying `payTo` the same amount. A stated account other than `payTo` is refused.
+  send's `block_info`, paying `payTo` the same amount, with `source_hash=` its hash (a `block_info` reply has no
+  `hash` key). A stated account other than `payTo` is refused. A receive must also name the send it pockets: its
+  own `link`, or `source_hash=` for a `raw=false` entry, which has no link; if several are given they must agree.
+  A receive that names no send is `inconclusive`.
 
 The hash is compared upper-case, so a re-read in another case is the same block. A send and the receive that
-pockets it are one payment (keyed by the send's hash). A receive that does not name its send, next to a credited
-send for the same quote, is `inconclusive`, never `duplicate_refund_due`.
+pockets it are one payment, keyed by the send's hash, and every credited payment is remembered for the life of
+the ledger, also after its quote's tail is released, so a later quote that holds the same tail (a buyer can grind
+a quote_id for any tail) can never be credited with it. Pass `quote_id=` the quote being settled.
 
 Always: integer raw only (`1 XNO = 10**30`; refuse floats), use the **block's** time for window
 checks, wait for confirmation, bound node lookups (timeout, response size), and refuse plain-HTTP

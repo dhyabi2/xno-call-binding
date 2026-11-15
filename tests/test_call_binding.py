@@ -40,7 +40,7 @@ class OdinSlidphiThreeTests(unittest.TestCase):
     def test_1_exact_payment_in_window_matches_block_to_quote(self):
         # "pay a quoted amount inside its validity window and have us match block to quote
         #  with no manual detective work"
-        led = cb.QuoteLedger(payto=PAYTO)
+        led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 300)
         led.mark_delivered(qid)
@@ -52,7 +52,7 @@ class OdinSlidphiThreeTests(unittest.TestCase):
     def test_2_late_payment_is_refusable_on_evidence(self):
         # "then pay late, after the quote expires ... refusable on evidence rather than on
         #  goodwill"
-        led = cb.QuoteLedger(payto=PAYTO)
+        led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 300)
         out = credit(led, {"hash": "C" * 64, "amount": str(rec["expected_raw"]),
@@ -63,7 +63,7 @@ class OdinSlidphiThreeTests(unittest.TestCase):
         self.assertEqual(out["paid_at"], NOW + 301)
 
     def test_3_wrong_amount_is_refusable_on_evidence(self):
-        led = cb.QuoteLedger(payto=PAYTO)
+        led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 300)
         # Right tail, short price: attributable but not paid in full.
@@ -78,7 +78,7 @@ class BoscoRoteoThreeObjections(unittest.TestCase):
 
     def test_4_colliding_tail_is_refused_at_issue_not_hoped_away(self):
         # "Unique amounts can collide across concurrent orders or time windows"
-        led = cb.QuoteLedger(payto=PAYTO)
+        led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         first = quote()
         led.open_quote(first, price_raw=PRICE, expires_at=NOW + 300)
         second = quote(key=b"\x02" * 32)
@@ -92,7 +92,7 @@ class BoscoRoteoThreeObjections(unittest.TestCase):
     def test_5_same_payment_is_never_credited_twice(self):
         # "a hash alone is also insufficient unless the seller records the binding and
         #  prevents the same payment being credited twice"
-        led = cb.QuoteLedger(payto=PAYTO)
+        led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 600)
         led.mark_delivered(qid)
@@ -132,7 +132,7 @@ class PrismdeadlinesAmbiguousCases(unittest.TestCase):
 
     def test_7_confirmed_but_undelivered_is_a_distinguishable_pending_state(self):
         # "a distinguishable pending state beats an error that looks like non-payment"
-        led = cb.QuoteLedger(payto=PAYTO)
+        led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 300)
         out = credit(led, {"hash": "A" * 64, "amount": str(rec["expected_raw"]),
@@ -143,7 +143,7 @@ class PrismdeadlinesAmbiguousCases(unittest.TestCase):
     def test_8_refund_bound_comes_from_the_duplicates_own_block_time(self):
         # "refund_due_by derived from the duplicate's own block time ... both sides can
         #  compute it without trusting the merchant's clock"
-        led = cb.QuoteLedger(payto=PAYTO)
+        led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         qid = quote()
         rec = led.open_quote(qid, price_raw=PRICE, expires_at=NOW + 600)
         led.mark_delivered(qid)
@@ -157,7 +157,7 @@ class PrismdeadlinesAmbiguousCases(unittest.TestCase):
     def test_9_refund_overdue_is_not_terminal(self):
         # "overdue is a fact, but a buyer needs to know whether it is terminal or whether a
         #  late refund block still flips it to refunded"
-        led = cb.QuoteLedger(payto=PAYTO)
+        led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         due = NOW + 3600
         overdue = led.refund_state(refund_due_by=due, now=due + 1)
         self.assertEqual(overdue["verdict"], cb.REFUND_OVERDUE)
@@ -206,7 +206,7 @@ class Controls(unittest.TestCase):
 
     def test_14_unattributed_payment_is_named_not_silently_kept(self):
         # "unmatched money is a support burden, not revenue" - so it gets its own verdict.
-        led = cb.QuoteLedger(payto=PAYTO)
+        led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         out = credit(led, {"hash": "9" * 64,
                           "amount": str(7 * 10**27 + 123 * 10**15),
                           "local_timestamp": NOW})
@@ -231,11 +231,11 @@ class Controls(unittest.TestCase):
         self.assertEqual(
             sorted(line.split()[1] for line in src.splitlines()
                    if line.startswith("import ")),
-            ["hashlib", "hmac", "json"],
+            ["hashlib", "hmac", "json", "time"],
         )
 
     def test_16_malformed_block_is_an_error_not_a_verdict(self):
-        led = cb.QuoteLedger(payto=PAYTO)
+        led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         with self.assertRaises(cb.BindingError):
             credit(led, {"hash": "0" * 64, "local_timestamp": NOW})  # no amount
         with self.assertRaises(cb.BindingError):
@@ -246,7 +246,7 @@ class CreditOnlyFinalSendsToPayto(unittest.TestCase):
     """credit() must refuse anything that is not a confirmed send of exact integer raw to payto."""
 
     def setUp(self):
-        self.led = cb.QuoteLedger(payto=PAYTO)
+        self.led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         self.qid = quote()
         self.rec = self.led.open_quote(self.qid, price_raw=PRICE, expires_at=NOW + 300)
         self.led.mark_delivered(self.qid)
@@ -263,7 +263,7 @@ class CreditOnlyFinalSendsToPayto(unittest.TestCase):
 
     def test_17_genuine_node_reply_is_credited(self):
         for confirmed in ("true", True):
-            led = cb.QuoteLedger(payto=PAYTO)
+            led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
             rec = led.open_quote(self.qid, price_raw=PRICE, expires_at=NOW + 300)
             led.mark_delivered(self.qid)
             block = {"hash": "B" * 64, "amount": rec["expected_raw"], "local_timestamp": NOW + 10,
@@ -364,7 +364,7 @@ class BothShapesOfAPayment(unittest.TestCase):
     """A payment is a send to payto, or payto's own receive of it. Both are credited, once."""
 
     def setUp(self):
-        self.led = cb.QuoteLedger(payto=PAYTO)
+        self.led = cb.QuoteLedger(payto=PAYTO, clock=lambda: NOW)
         self.qid = quote()
         self.rec = self.led.open_quote(self.qid, price_raw=PRICE, expires_at=NOW + 300)
         self.led.mark_delivered(self.qid)
@@ -392,7 +392,10 @@ class BothShapesOfAPayment(unittest.TestCase):
         self.assertNotIn(self.qid, self.led._credited)
 
     def test_28_receive_from_paytos_own_history_is_credited_when_caller_says_so(self):
-        out = self.led.credit(self.history_receive(), account=PAYTO)
+        # raw=false has no link: it must be told which send it pockets, or it is not credited
+        self.assertNothingCredited(self.led.credit(self.history_receive(), account=PAYTO),
+                                   cb.INCONCLUSIVE)
+        out = self.led.credit(self.history_receive(), account=PAYTO, source_hash=SRC)
         self.assertEqual(out["verdict"], cb.MATCHED, out)
         self.assertEqual(out["quote_id"], self.qid)
 
@@ -421,11 +424,13 @@ class BothShapesOfAPayment(unittest.TestCase):
     def test_32_unconfirmed_or_non_integer_receive_is_not_credited(self):
         for confirmed in ("false", None, "True"):
             self.assertNothingCredited(
-                self.led.credit(self.history_receive(confirmed=confirmed), account=PAYTO),
+                self.led.credit(self.history_receive(confirmed=confirmed), account=PAYTO,
+                                source_hash=SRC),
                 cb.INCONCLUSIVE)
         for amount in ("1.5", 1.5, True, "1" * 5000):
             self.assertNothingCredited(
-                self.led.credit(self.history_receive(amount=amount), account=PAYTO),
+                self.led.credit(self.history_receive(amount=amount), account=PAYTO,
+                                source_hash=SRC),
                 cb.INCONCLUSIVE)
 
     def test_33_paytos_own_outgoing_transfer_is_never_credited(self):
