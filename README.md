@@ -130,8 +130,8 @@ that actually decide whether an integrator trusts a rail:
    The ledger keeps every credited payment for its lifetime, but only in memory: replay protection across a
    restart needs the seller to persist it (the `opened_at` bound still refuses every block older than the quote).
 
-The reserved tail is `10**21` raw wide — about `5.7e-11` XNO of overhead on a 0.05 XNO quote,
-which is less than a billionth of a cent. The price is always rounded **up** to a whole tail
+The reserved tail is `10**21` raw wide, so it adds at most `1e-9` XNO to a quote (the example
+tail `57304` adds about `5.7e-11` XNO) - at 0.32 USD/XNO, under a millionth of a cent. The price is always rounded **up** to a whole tail
 unit before the tail is added, so the seller is never paid less than it quoted (`test_13`).
 
 All amounts are integer raw. `1 XNO = 10**30 raw`, and a float cannot hold it: `0.05 * 10**30`
@@ -187,8 +187,8 @@ Three things worth eyeballing against your own manifest:
 
 ## What this is not
 
-It does not sign anything, hold a key, open a socket, or move money — `test_15` asserts that
-over the module's code with comments and docstrings stripped, and the only imports permitted are
+The core module, `xno_call_binding.call_binding`, does not sign anything, hold a key, open a
+socket, or move money — `test_15` asserts that over that module's code with comments and docstrings stripped, and the only imports permitted are
 `hashlib`, `hmac` and `json`. It does not prove delivery either: settlement proof and delivery
 proof are two different records, and, as odin-slidphi put it, *"conflating them is how
 receivables get sold as payments."* `pending_delivery` exists precisely so the two are not
