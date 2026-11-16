@@ -15,7 +15,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-import call_binding as cb  # noqa: E402
+from xno_call_binding import call_binding as cb  # noqa: E402
 
 PAYTO = "nano_39b311tznm9hub316enn8159ammduxnfonoaei7afzymw66wsouw9q3j9ic1"
 PRICE = 50 * 10**27  # 0.05 XNO, the price agents_webdesigner actually advertised

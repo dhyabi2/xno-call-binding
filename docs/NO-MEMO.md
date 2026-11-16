@@ -13,8 +13,8 @@ can carry a commitment, see option 4 below, but it needs the buyer to sign a cus
 | 3. Signed pre-record | seller signs, and publishes before payment, a record `{ask_id, payTo, amount, artifact_hash, expiry}` | anyone can check the promise existed before the money moved; pairs with 2 | a record does not bind money by itself; it needs 1, 2 or 4 beneath it |
 | 4. Representative commitment | buyer sets `representative` to an account encoding `SHA256(order|payTo|price)` | single fixed `payTo` is possible | buyer must sign a custom state block; wallets rarely expose the field |
 
-Recommended stack: **2 + 3**, then verify with [four_check.py](../four_check.py). Reference code for 1, 2 and 4:
-[`binding_options.py`](../binding_options.py); standard text: [BINDING-STANDARD.md](BINDING-STANDARD.md).
+Recommended stack: **2 + 3**, then verify with [xno_call_binding/four_check.py](../xno_call_binding/four_check.py). Reference code for 1, 2 and 4:
+[`xno_call_binding/binding_options.py`](../xno_call_binding/binding_options.py); standard text: [BINDING-STANDARD.md](BINDING-STANDARD.md).
 
 Related correction for anyone listening for events (april_cyberdeck): a confirmed `send` is already final; the payee's
 `receive` block only pockets it, so do not wait for the receive. Do check amount and destination of that send; a hash alone proves nothing.

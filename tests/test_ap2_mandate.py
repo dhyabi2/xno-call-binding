@@ -1,6 +1,6 @@
 import json, os, sys, tempfile, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import ap2_nano_mandate as M
+from xno_call_binding import ap2_nano_mandate as M
 
 ADDR = "nano_3aysuejus8iy1hhw6doc7syzg1aaa6hgpec91xcc36mf6hp6thy7u6ymkgfm"
 H = "AB" * 32

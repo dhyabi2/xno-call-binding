@@ -1,29 +1,43 @@
-# `xno_call_binding` — binding a Nano payment to the call it paid for
+# `xno-call-binding` — binding a Nano payment to the call it paid for
 
 ## Install
 
 ```
-pip install "xno-call-binding @ git+https://github.com/dhyabi2/xno-call-binding@dfbb6f5071d7a94692f020b6747d892a7f09af25"
-python -c "import call_binding"
+pip install xno-call-binding==0.2.0
+python -c "from xno_call_binding import call_binding; print(call_binding.derive_quote_id)"
 ```
 
-This pins a reviewed commit until a release tag exists.
+Everything lives in one package, `xno_call_binding`. Since 0.2.0 the import is
+`from xno_call_binding import call_binding` (it was `import call_binding` in the 0.1 source tree), and likewise for
+the other modules: `from xno_call_binding.call_binding import QuoteLedger, derive_quote_id`.
 
-**Quickstart (no key, stdlib only; the tests and `e2e_check.py` make no outside network calls - one test talks to a loopback server it starts itself):**
+```python
+import os
+from xno_call_binding import call_binding as cb
+
+order_key = os.urandom(32)          # the buyer mints this before paying and keeps it
+payto = "nano_39b311tznm9hub316enn8159ammduxnfonoaei7afzymw66wsouw9q3j9ic1"
+qid = cb.derive_quote_id(order_key, resource="/api/thing", price_raw=50 * 10**27, payto=payto)
+print(cb.bound_amount(50 * 10**27, qid))   # the exact raw amount to send
+```
+
+**Quickstart from source (no key, stdlib only; the tests and `e2e_check.py` make no outside network calls - one test talks to a loopback server it starts itself):**
 
 ```
 git clone https://github.com/dhyabi2/xno-call-binding && cd xno-call-binding && python3 -m unittest discover -s tests && python3 e2e_check.py
 ```
 
-Also in this repo: `quote_service.py` (`docs/QUOTE-SERVICE.md`: a `/quote` endpoint, USD cents in, exact XNO amount
-and expiry out) and `presigned_send.py` (`docs/PRESIGNED-SEND.md`: a buyer-signed send block bound to a quote, checked
+The sdist on PyPI carries `tests/`, `docs/`, `examples/` and `e2e_check.py` too, so the same two commands run inside it.
+
+Also in this package: `xno_call_binding.quote_service` (`docs/QUOTE-SERVICE.md`: a `/quote` endpoint, USD cents in, exact XNO amount
+and expiry out; run it with `python3 -m xno_call_binding.quote_service`) and `xno_call_binding.presigned_send` (`docs/PRESIGNED-SEND.md`: a buyer-signed send block bound to a quote, checked
 by the middleware before it adds PoW and broadcasts).
 
-Also in this repo: `docs/NANO-FINALITY-FACTS.md` + `finality_facts.py` (confirmed / age / still-receivable for one send block; a send never expires) and `docs/SINGLE-CALL.md` (the two-request pay-and-deliver pattern and the seller's five-field receivable check).
+Also in this package: `docs/NANO-FINALITY-FACTS.md` + `xno_call_binding.finality_facts` (confirmed / age / still-receivable for one send block; a send never expires) and `docs/SINGLE-CALL.md` (the two-request pay-and-deliver pattern and the seller's five-field receivable check).
 
-Also in this repo: `docs/BINDING-STANDARD.md` (three binding options; **recommended: a per-order
+Also in this package: `docs/BINDING-STANDARD.md` (three binding options; **recommended: a per-order
 invoice account**; why a bare unique-amount tag is unsafe; test vectors) and
-`docs/USD-PEGGED-QUOTE.md` with `usd_quote.py` (USD price, 60 s XNO quote, refund in the same raw amount).
+`docs/USD-PEGGED-QUOTE.md` with `xno_call_binding.usd_quote` (USD price, 60 s XNO quote, refund in the same raw amount).
 
 Note: the amount-tail convention below is the module's original design. Read
 `docs/BINDING-STANDARD.md` first: the binding that matters is the one-to-one
@@ -33,7 +47,7 @@ Standard library only. No key, no signing, no broadcast. The binding convention 
 `binding_options`, `presigned_send`, `ap2_nano_mandate`) makes no network calls: it is arithmetic over
 records the buyer and the seller already hold. Network is used only by the read-only node and price helpers
 (`finality_facts`, `four_check`, `usd_quote`), and only when their functions are called, never at import;
-`quote_service` serves HTTP when you run it and gets its prices through `usd_quote`. 74 tests, `python3 -m unittest
+`quote_service` serves HTTP when you run it and gets its prices through `usd_quote`. 137 tests, `python3 -m unittest
 discover -s tests`; a worked run, `python3 e2e_check.py`.
 
 ## The objection this answers, in the seller's own words
@@ -196,9 +210,9 @@ It holds no key and sends nothing. A block hash alone is never proof of an order
 
 
 ## Also
-- [docs/FOUR-CHECK-VERIFIER.md](docs/FOUR-CHECK-VERIFIER.md): board read-back, artifact hash, ledger, recipient signature; `four_check.py`.
-- [docs/NO-MEMO.md](docs/NO-MEMO.md): Nano has no memo field; the bindings and their costs.
+- [docs/FOUR-CHECK-VERIFIER.md](https://github.com/dhyabi2/xno-call-binding/blob/HEAD/docs/FOUR-CHECK-VERIFIER.md): board read-back, artifact hash, ledger, recipient signature; `xno_call_binding.four_check`.
+- [docs/NO-MEMO.md](https://github.com/dhyabi2/xno-call-binding/blob/HEAD/docs/NO-MEMO.md): Nano has no memo field; the bindings and their costs.
 
 ## A Nano settlement in an AP2 PaymentMandate
 
-`ap2_nano_mandate.py` builds and checks the PaymentMandate (stdlib, no key; this module makes no network calls; unpaid draft unless you give it a block hash); mapping in `docs/AP2-NANO-MAPPING.md`.
+`xno_call_binding.ap2_nano_mandate` (`python3 -m xno_call_binding.ap2_nano_mandate`) builds and checks the PaymentMandate (stdlib, no key; this module makes no network calls; unpaid draft unless you give it a block hash); mapping in `docs/AP2-NANO-MAPPING.md`.

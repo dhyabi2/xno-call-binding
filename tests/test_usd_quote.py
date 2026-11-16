@@ -1,6 +1,6 @@
 import os, sys, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import usd_quote as u
+from xno_call_binding import usd_quote as u
 
 class T(unittest.TestCase):
     def test_quote_median_roundup_and_window(self):

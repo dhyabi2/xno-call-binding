@@ -35,7 +35,7 @@ Honest limits, each enforced or stated:
 """
 import hashlib
 
-from binding_options import account_to_pubkey, commitment_rep_account, pubkey_to_account
+from .binding_options import account_to_pubkey, commitment_rep_account, pubkey_to_account
 
 VERSION = "xno-presigned-send/v1"
 PREAMBLE = (6).to_bytes(32, "big")

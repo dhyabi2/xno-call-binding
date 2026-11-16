@@ -8,8 +8,8 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import call_binding as cb
-import quote_service as qs
+from xno_call_binding import call_binding as cb
+from xno_call_binding import quote_service as qs
 
 PAYTO = "nano_39b311tznm9hub316enn8159ammduxnfonoaei7afzymw66wsouw9q3j9ic1"
 T = [1_790_000_000]
@@ -141,6 +141,8 @@ class Quote(unittest.TestCase):
         for n in ast.walk(tree):
             if isinstance(n, ast.Import):
                 names |= {a.name.split(".")[0] for a in n.names}
+            elif isinstance(n, ast.ImportFrom) and n.module is None:
+                names |= {a.name for a in n.names}  # `from . import call_binding`
             elif isinstance(n, ast.ImportFrom):
                 names.add(n.module.split(".")[0])
         self.assertEqual(names, {"argparse", "call_binding", "http", "json", "time", "urllib", "usd_quote"})

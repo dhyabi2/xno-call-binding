@@ -11,9 +11,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import call_binding as cb  # noqa: E402
-import quote_service as qs  # noqa: E402
-from binding_options import account_to_pubkey, pubkey_to_account  # noqa: E402
+from xno_call_binding import call_binding as cb  # noqa: E402
+from xno_call_binding import quote_service as qs  # noqa: E402
+from xno_call_binding.binding_options import account_to_pubkey, pubkey_to_account  # noqa: E402
 
 PAYTO = "nano_39b311tznm9hub316enn8159ammduxnfonoaei7afzymw66wsouw9q3j9ic1"
 BUYER = pubkey_to_account(b"\x09" * 32)

@@ -12,7 +12,7 @@ about which order it paid for. A seller needs three guarantees before it release
 3. **Recoverable** - a lost response, a late payment or a duplicate has a defined outcome.
 
 This document gives three ways to bind, ranks them, and says which one to ship. Reference
-helpers and test vectors: `binding_options.py`, `tests/test_options.py` (stdlib only, no key).
+helpers and test vectors: `xno_call_binding/binding_options.py`, `tests/test_options.py` (stdlib only, no key).
 
 ## Recommendation
 
@@ -130,7 +130,7 @@ non-loopback RPC endpoints.
 
 ## Test vectors
 
-All reproducible with `python3 -c` against `binding_options.py`.
+All reproducible with `python3 -c` against `xno_call_binding/binding_options.py`.
 
 ```
 payTo (all-zero key, burn account)  nano_1111111111111111111111111111111111111111111111111111hifc8npp

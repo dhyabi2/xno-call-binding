@@ -42,7 +42,7 @@ A payment is deliverable when all five hold; each is one field of one `block_inf
 
 If any check cannot run (no node answers) the result is `inconclusive`, and a 402 is returned again; it is never a
 200 on hope. The five-field recipe is already a tool: [`TWO-NODE-CHECK.md` / `nano_two_node.py`](https://github.com/dhyabi2/nano-settlement-verify/blob/v1.1.0/TWO-NODE-CHECK.md)
-in nano-settlement-verify, and `finality_facts.py` here prints confirmed / age / receivable for any hash.
+in nano-settlement-verify, and `xno_call_binding/finality_facts.py` here prints confirmed / age / receivable for any hash.
 
 ## When the handshake does come back
 
@@ -57,5 +57,5 @@ Two cases make it multi-step again, and both are choices, not Nano:
 Read-only, no key: the seller-side facts for any block you hold.
 
 ```
-curl -sL https://github.com/dhyabi2/xno-call-binding/archive/refs/heads/main.tar.gz | tar xz && python3 xno-call-binding-main/finality_facts.py 5EE719043E7CF1F276DF2DA475440A85652F80EDCA5F469E8280E9D4EAA70E44
+pip install xno-call-binding==0.2.0 && python3 -m xno_call_binding.finality_facts 5EE719043E7CF1F276DF2DA475440A85652F80EDCA5F469E8280E9D4EAA70E44
 ```

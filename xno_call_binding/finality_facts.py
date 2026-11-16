@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """finality_facts: what the Nano ledger says about ONE send block, as three separate facts.
 
-    python3 finality_facts.py BLOCK_HASH [--rpc URL[,URL...]] [--now UNIX]
+    python3 -m xno_call_binding.finality_facts BLOCK_HASH [--rpc URL[,URL...]] [--now UNIX]
 
 Read-only: two public RPC reads (block_info, receivable). No key, no signing, no broadcast.
 

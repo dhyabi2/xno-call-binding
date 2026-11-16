@@ -1,7 +1,7 @@
 import sys, unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import finality_facts as ff
+from xno_call_binding import finality_facts as ff
 
 H = "AB" * 32
 DEST = "nano_1destination"

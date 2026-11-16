@@ -1,7 +1,7 @@
 """Test-only signer for throwaway keys. NOT part of the library: the shipped verifier never signs."""
 import hashlib
 
-import presigned_send as ps
+from xno_call_binding import presigned_send as ps
 
 _blake = lambda d: hashlib.blake2b(d, digest_size=64).digest()
 

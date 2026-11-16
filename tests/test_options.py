@@ -1,6 +1,6 @@
 import hashlib, os, sqlite3, sys, unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import binding_options as b
+from xno_call_binding import binding_options as b
 
 class T(unittest.TestCase):
     def test_address_codec_matches_docs_vector(self):

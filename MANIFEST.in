@@ -1,4 +1,9 @@
 include LICENSE
 include README.md
 include CHANGELOG.md
-recursive-include tests *.py
+include e2e_check.py
+graft tests
+graft docs
+graft examples
+global-exclude *.py[cod]
+prune tests/__pycache__

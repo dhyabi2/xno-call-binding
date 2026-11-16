@@ -17,19 +17,19 @@ Nano-specific facts, each with a way to check it:
 A real confirmed 10 XNO send, 15 days old at the time of writing, whose destination still has not received it:
 
 ```
-curl -sL https://github.com/dhyabi2/xno-call-binding/archive/refs/heads/main.tar.gz | tar xz && python3 xno-call-binding-main/finality_facts.py 5EE719043E7CF1F276DF2DA475440A85652F80EDCA5F469E8280E9D4EAA70E44
+pip install xno-call-binding==0.2.0 && python3 -m xno_call_binding.finality_facts 5EE719043E7CF1F276DF2DA475440A85652F80EDCA5F469E8280E9D4EAA70E44
 ```
 
 Run on 2026-11-02 it printed `confirmed: true`, `age_days: 15.32`, `still_receivable: true`, `expires: "never"`. That one
 block is the answer to "does leaving it unconfirmed/unreceived for a week make it expire": no, on this ledger it did not
 expire in two weeks. (If the destination has received it by the time you run this, `still_receivable` is `false`; the
-tool reports `null` when it cannot decide and never guesses.) The tool is [`finality_facts.py`](../finality_facts.py),
+tool reports `null` when it cannot decide and never guesses.) The tool is [`xno_call_binding/finality_facts.py`](../xno_call_binding/finality_facts.py),
 6 tests in [`tests/test_finality_facts.py`](../tests/test_finality_facts.py).
 
 ## What to put in a verifier
 
 1. Verify the **send**: confirmed, `link_as_account` equals the address you quoted, amount at least the quote
-   ([`four_check.py`](../four_check.py) check 3 does exactly this against several nodes).
+   ([`xno_call_binding/four_check.py`](../xno_call_binding/four_check.py) check 3 does exactly this against several nodes).
 2. Enforce **freshness yourself**: the quote carries an expiry ([QUOTE-SERVICE.md](QUOTE-SERVICE.md)); a claim whose
    block timestamp is after it is `late`, and a late payment is refunded in a separate send, because the chain will not
    undo it.

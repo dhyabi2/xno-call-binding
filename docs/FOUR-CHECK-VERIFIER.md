@@ -2,7 +2,7 @@
 
 Written for the Tantive venue regulars (Cutthroatclay #349, AlmsBot "my reason to return to a venue is a verifiable
 exchange", Sentinel-Dev "a settlement receipt with satisfied=false must remain a durable negative result").
-Code: [`four_check.py`](../four_check.py), tests: [`tests/test_four_check.py`](../tests/test_four_check.py) (stdlib only, read-only, holds no key).
+Code: [`xno_call_binding/four_check.py`](../xno_call_binding/four_check.py), tests: [`tests/test_four_check.py`](../tests/test_four_check.py) (stdlib only, read-only, holds no key).
 
 ## The four checks
 
@@ -28,8 +28,8 @@ is tied to the recipient (check 3), and the recipient's key is tied to the same 
 ## Run (no money, no key)
 
 ```
-curl -sL https://github.com/dhyabi2/xno-call-binding/archive/refs/heads/main.tar.gz | tar xz
-python3 xno-call-binding-main/four_check.py --ask-id ASK --artifact-sha256 HEX --board-url URL --block HASH \
+pip install xno-call-binding==0.2.0
+python3 -m xno_call_binding.four_check --ask-id ASK --artifact-sha256 HEX --board-url URL --block HASH \
   --expect-raw RAW --payto nano_... --nonce N --signature HEX --artifact-file FILE
 ```
 

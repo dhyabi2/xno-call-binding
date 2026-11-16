@@ -7,8 +7,8 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.dirname(__file__))
 import _signer
-import presigned_send as ps
-from binding_options import commitment_rep_account, pubkey_to_account
+from xno_call_binding import presigned_send as ps
+from xno_call_binding.binding_options import commitment_rep_account, pubkey_to_account
 
 PAYTO = "nano_39b311tznm9hub316enn8159ammduxnfonoaei7afzymw66wsouw9q3j9ic1"
 AMOUNT = 5 * 10 ** 28 + 949121 * 10 ** 15

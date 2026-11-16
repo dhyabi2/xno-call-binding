@@ -49,7 +49,7 @@ import hmac
 import json
 import time
 
-from binding_options import pubkey_to_account as _account_of_key
+from .binding_options import pubkey_to_account as _account_of_key
 
 RAW_PER_XNO = 10**30
 

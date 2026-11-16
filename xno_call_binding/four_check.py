@@ -17,12 +17,12 @@ key to the same ask_id/artifact hash/nonce (a signed statement over "xno-four-ch
 Check 3 cannot prove WHICH ask a block paid for; use a per-order address (docs/BINDING-STANDARD.md option B) so
 that "recipient" already means "this order".
 
-  python3 four_check.py --ask-id A1 --artifact-sha256 HEX --board-url URL --block HASH \
+  python3 -m xno_call_binding.four_check --ask-id A1 --artifact-sha256 HEX --board-url URL --block HASH \
       --expect-raw RAW --payto nano_... --nonce N --signature HEX [--artifact-file F] [--node URL ...]
 """
 import argparse, hashlib, json, time, urllib.request, sys
-from presigned_send import verify_signature
-from binding_options import account_to_pubkey
+from .presigned_send import verify_signature
+from .binding_options import account_to_pubkey
 
 PREFIX = "xno-four-check/v1"
 NODES = ["https://rainstorm.city/api", "https://rpc.nano-gpt.com", "https://node.somenano.com/proxy"]

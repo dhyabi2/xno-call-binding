@@ -25,8 +25,8 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import call_binding as cb
-import usd_quote as uq
+from . import call_binding as cb
+from . import usd_quote as uq
 
 REFUSALS = {
     cb.REFUSABLE_LATE: "block confirmed after expires_at: refuse, refund the same raw amount to the sender",

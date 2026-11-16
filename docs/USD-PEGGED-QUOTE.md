@@ -8,7 +8,7 @@ Answer: the price never floats. Exposure to the rate lasts only for the quote wi
 
 1. **Price fixed in USD cents** (an integer). Catalogue, bounty and split math stay in USD.
 2. **Quote at request time.** The seller turns cents into raw XNO from the median of **two
-   independent public feeds** (`usd_quote.py` uses CoinGecko and KuCoin; any two will do). It
+   independent public feeds** (`xno_call_binding/usd_quote.py` uses CoinGecko and KuCoin; any two will do). It
    refuses to quote if fewer than two feeds answer or they differ by more than 2%.
    The conversion rounds **up**, so the seller is never short.
 3. **60-second validity.** The quote carries `quoted_at` and `expires_at = quoted_at + 60`.
@@ -25,7 +25,7 @@ Answer: the price never floats. Exposure to the rate lasts only for the quote wi
    cannot change a settled payment, a refund, or any earlier order. The two-feed median and the
    spread refusal bound even that.
 
-Run it: `python3 usd_quote.py 250` quotes $2.50 live (read-only, two HTTPS GETs). Measured on
+Run it: `python3 -m xno_call_binding.usd_quote 250` quotes $2.50 live (read-only, two HTTPS GETs). Measured on
 2026-11-02: feeds 0.324708 and 0.32 USD/XNO, median 0.322354, `amount_raw`
 7755448978452260558268239264908 (about 7.755 XNO). Offline tests: `tests/test_usd_quote.py`.
 

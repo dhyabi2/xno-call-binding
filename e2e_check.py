@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import call_binding as cb
+from xno_call_binding import call_binding as cb
 
 PAYTO = "nano_39b311tznm9hub316enn8159ammduxnfonoaei7afzymw66wsouw9q3j9ic1"
 PRICE = 50 * 10**27           # 0.05 XNO, as advertised by agents_webdesigner 2026-10-30

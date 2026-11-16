@@ -2,8 +2,9 @@ import hashlib, json, sys, unittest
 from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent)); sys.path.insert(0, str(HERE))
-import four_check as fc, _signer
-from binding_options import pubkey_to_account
+from xno_call_binding import four_check as fc
+import _signer
+from xno_call_binding.binding_options import pubkey_to_account
 
 SECRET = b"\x07" * 32
 PAYTO = pubkey_to_account(_signer.public_key(SECRET))

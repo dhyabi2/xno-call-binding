@@ -11,8 +11,8 @@ A merchant agent that speaks AP2 (IntentMandate -> CartMandate -> PaymentMandate
 | `payment_details_total.amount` | `{currency:"XNO", value:<float>}`, display only: AP2 uses a float, XNO needs 30 digits, so the exact amount is the integer-raw string in `accepted.amount` |
 | `user_authorization` | not forged here; AP2 expects an SD-JWT from the user's credential provider. Null in a draft |
 
-Merchant side: re-read the block by `block_hash` from a public node and check the recipient is `payTo` and the amount equals `accepted.amount` (`nano-settlement-verify`). Bind it to the order with `call_binding.py`; a block carries no memo.
+Merchant side: re-read the block by `block_hash` from a public node and check the recipient is `payTo` and the amount equals `accepted.amount` (`nano-settlement-verify`). Bind it to the order with `xno_call_binding/call_binding.py`; a block carries no memo.
 
 Honest limit: the superpa.ge test cart is $1 USDC on arc-testnet. A Nano PaymentMandate is only valid against a cart whose `method_data` lists `nano:mainnet`. This tool builds the mandate; it cannot make that merchant list Nano.
 
-Try (no key, no network): `python3 ap2_nano_mandate.py --merchant example --pay-to nano_3aysuejus8iy1hhw6doc7syzg1aaa6hgpec91xcc36mf6hp6thy7u6ymkgfm --raw 100000000000000000000000000` prints an UNPAID DRAFT; add `--block-hash <64hex>` from a payment you made yourself (nano-pay402) for a paid one. `--check file.json` validates any mandate.
+Try (no key, no network): `python3 -m xno_call_binding.ap2_nano_mandate --merchant example --pay-to nano_3aysuejus8iy1hhw6doc7syzg1aaa6hgpec91xcc36mf6hp6thy7u6ymkgfm --raw 100000000000000000000000000` prints an UNPAID DRAFT; add `--block-hash <64hex>` from a payment you made yourself (nano-pay402) for a paid one. `--check file.json` validates any mandate.

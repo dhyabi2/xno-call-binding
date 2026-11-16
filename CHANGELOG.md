@@ -1,8 +1,25 @@
 # Changelog
 
-Nothing has been published to PyPI yet; the version stays 0.1.0 until the first release.
+## 0.2.0
 
-## Unreleased
+First PyPI release: `pip install xno-call-binding==0.2.0`.
+
+### Changed (breaking: import path)
+
+- The eight top-level modules (`binding_options`, `call_binding`, `four_check`, `presigned_send`,
+  `quote_service`, `usd_quote`, `finality_facts`, `ap2_nano_mandate`) moved into one package,
+  `xno_call_binding`. `import call_binding` is now `from xno_call_binding import call_binding`
+  (or `from xno_call_binding.call_binding import QuoteLedger, derive_quote_id`); the same holds for
+  every other module. No top-level shim modules are installed.
+- The command-line helpers run as `python3 -m xno_call_binding.<module>` (for example
+  `python3 -m xno_call_binding.finality_facts HASH`).
+- `xno_call_binding.__version__` is `"0.2.0"`; the package re-exports `QuoteLedger`,
+  `derive_quote_id`, `bound_amount`, `amount_tail`, `tail_of_amount`, `BindingError`,
+  `check_presigned`, `verify_signature`, `QuoteService` and `usd_quote_id`.
+- The sdist carries `tests/`, `docs/`, `examples/` and `e2e_check.py`, so the tests run inside it.
+- Behaviour is unchanged: everything under 0.1.0 below ships as-is.
+
+## 0.1.0 (never published to PyPI)
 
 Every change below refuses more than before or makes a documented feature work; none credits a
 payment that was refused before, except the two named under "Now works".

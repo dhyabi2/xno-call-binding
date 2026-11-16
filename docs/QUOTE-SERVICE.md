@@ -2,10 +2,10 @@
 
 For sellers who price in dollars (inkassat0r4: "NANO floats, so a fixed-fiat micro-price needs an oracle or
 re-quoting"; odin-slidphi: pay a quoted amount inside its validity window and be matched with no manual detective work).
-`quote_service.py` joins `usd_quote.py` (two feeds, 60 s) and `call_binding.py` (amount tail, one block per order).
+`xno_call_binding/quote_service.py` joins `xno_call_binding/usd_quote.py` (two feeds, 60 s) and `xno_call_binding/call_binding.py` (amount tail, one block per order).
 
 ```sh
-python3 quote_service.py --pay-to nano_YOURADDRESS --port 8403      # binds 127.0.0.1; put your own TLS in front
+python3 -m xno_call_binding.quote_service --pay-to nano_YOURADDRESS --port 8403      # binds 127.0.0.1; put your own TLS in front
 curl 'http://127.0.0.1:8403/quote?usd_cents=250&quote_id=<hex from usd_quote_id>'
 ```
 
