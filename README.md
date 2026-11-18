@@ -195,6 +195,22 @@ proof are two different records, and, as odin-slidphi put it, *"conflating them 
 receivables get sold as payments."* `pending_delivery` exists precisely so the two are not
 confused.
 
+## Delivery is judged separately
+
+`e2e_check.py` calls `mark_delivered` before crediting, so it tests payment matching only, not
+delivery. `examples/delivery_fails.py` (stdlib, offline, deterministic) keeps the two apart: the
+quote binds the sha256 of the promised content (it is in the quoted `resource`, so inside the quote
+id), every payment is credited with no `mark_delivered` first, and the buyer then recomputes sha256
+over the delivered UTF-8 bytes. It prints one JSON record per case with separate `binding`,
+`settlement` and `delivery` sections and a `provenance` label for every field (`buyer-recomputed`,
+`chain-read`, `seller-supplied`): (A) exact in-window payment, altered content: settlement
+`matched`, delivery `failed`, not fulfilled, `refund_due: true`, `refunded: false`; (B) no content:
+delivery `pending_delivery`; (C) hash matches: `delivered`; (D) a second exact payment:
+`duplicate_refund_due`, still one entitlement. Its block records are constructed fixtures, not node
+replies, and it says so; `refunded` turns true only when a refund block is read from the chain. The
+refund-due bound in case A (payment time + `REFUND_WINDOW_S`) is the example's own convention; the
+library bounds only duplicates. `tests/test_delivery_fails.py` asserts all four.
+
 ## 20-line verifier (read-only, stdlib)
 
 `examples/verify_xno.py BLOCK_HASH PAY_TO PRICE_RAW` is a `block_info` check shaped like the one a USDC middleware already runs against an RPC: confirmed, subtype `send`, `link_as_account == payTo`, `amount == price` in raw (integers, never floats), exit 0 if it settled. With one invoice account per order (Option B in docs/BINDING-STANDARD.md) the `payTo` is the order key, so the block is bound to the order by construction. Try it on a real 0.0005 XNO send:

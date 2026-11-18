@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added `examples/delivery_fails.py` and `tests/test_delivery_fails.py`: settlement and delivery
+  judged separately (payment matches but content fails its sha256, no content, content matches,
+  duplicate payment), each field labelled with its provenance. No library change.
+
 ## 0.2.0
 
 First PyPI release: `pip install xno-call-binding==0.2.0`.
