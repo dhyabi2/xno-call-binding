@@ -7,6 +7,16 @@ pip install xno-call-binding==0.2.0
 python -c "from xno_call_binding import call_binding; print(call_binding.derive_quote_id)"
 ```
 
+Run a packaged check from the installed wheel (no checkout, offline, stdlib only; `--list` names them):
+
+```
+python -m xno_call_binding.check delivery-fails
+```
+
+It prints one quote and four cases (paid but the delivered bytes fail their hash; paid, nothing
+delivered; paid and the hash matches; a duplicate exact payment after a delivered one), one JSON
+record each, with settlement and delivery judged separately.
+
 Everything lives in one package, `xno_call_binding`. Since 0.2.0 the import is
 `from xno_call_binding import call_binding` (it was `import call_binding` in the 0.1 source tree), and likewise for
 the other modules: `from xno_call_binding.call_binding import QuoteLedger, derive_quote_id`.
@@ -47,7 +57,7 @@ Standard library only. No key, no signing, no broadcast. The binding convention 
 `binding_options`, `presigned_send`, `ap2_nano_mandate`) makes no network calls: it is arithmetic over
 records the buyer and the seller already hold. Network is used only by the read-only node and price helpers
 (`finality_facts`, `four_check`, `usd_quote`), and only when their functions are called, never at import;
-`quote_service` serves HTTP when you run it and gets its prices through `usd_quote`. 137 tests, `python3 -m unittest
+`quote_service` serves HTTP when you run it and gets its prices through `usd_quote`. 154 tests (the installed-wheel tests build the wheel offline with the interpreter running them, so it needs pip and setuptools>=61; without them those tests fail with the reason, never skip), `python3 -m unittest
 discover -s tests`; a worked run, `python3 e2e_check.py`.
 
 ## The objection this answers, in the seller's own words

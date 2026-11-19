@@ -4,13 +4,16 @@ The subprocess runs from an empty temporary directory with only the package on t
 examples/ is not reachable: the test fails if the check is not part of the package itself.
 """
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+_START = time.time()
 
 
 def run(*args, cwd):
@@ -68,20 +71,23 @@ class PackagedCheck(unittest.TestCase):
         self.assertIn("delivery-fails not run", r.stderr)
 
 
-# Runs inside the fresh venv. An audit hook records every file opened and every import; the run
-# fails if anything under the checkout (examples/ included) is touched, or if the module that ran
-# is not the installed one.
+# Runs inside the fresh venv. An audit hook records every file opened (str, bytes or path-like);
+# after the run, every loaded module's file is checked too. The run fails if anything under the
+# checkout (examples/ included) was opened or imported, or if the module that ran is not the
+# installed one.
 PROBE = r"""
-import sys, runpy
-root = sys.argv[1]
+import os, sys, runpy
+root = os.path.realpath(sys.argv[1])
 touched = []
+def under_root(p):
+    try:
+        p = os.fsdecode(p)
+    except TypeError:
+        return False
+    return os.path.realpath(p).startswith(root + os.sep) or os.path.realpath(p) == root
 def hook(event, args):
-    if event in ("open", "import") and args and isinstance(args[0], str):
-        if args[0].startswith(root):
-            touched.append(args[0])
-    elif event == "open" and args and isinstance(args[0], bytes):
-        if args[0].decode("utf-8", "replace").startswith(root):
-            touched.append(args[0])
+    if event == "open" and args and under_root(args[0]):
+        touched.append(os.fsdecode(args[0]))
 sys.addaudithook(hook)
 sys.argv = ["check", "delivery-fails"]
 try:
@@ -92,7 +98,11 @@ else:
     code = 0
 import xno_call_binding.check as m
 sys.stdout.flush()
-if m.__file__.startswith(root):
+for name, mod in list(sys.modules.items()):
+    f = getattr(mod, "__file__", None)
+    if f and under_root(f):
+        touched.append("import %s from %s" % (name, f))
+if under_root(m.__file__):
     sys.stderr.write("PROBE ran from the checkout: %s\n" % m.__file__)
     sys.exit(3)
 if touched:
@@ -101,56 +111,80 @@ if touched:
 sys.exit(code or 0)
 """
 
-
-def _can_build():
-    try:
-        import setuptools  # noqa: F401
-        import venv  # noqa: F401
-        return True
-    except ImportError:
-        return False
+# Files of the checkout that are not source: never copied into the build directory, so a stale
+# build/lib or egg-info cannot get into the wheel.
+_NOT_SOURCE = shutil.ignore_patterns(".git", "build", "dist", "*.egg-info", "__pycache__", "*.pyc")
 
 
-@unittest.skipUnless(_can_build(), "setuptools and venv are needed to build and install the wheel")
+def _run(cmd, **kw):
+    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+
+
 class InstalledWheel(unittest.TestCase):
     """Build the wheel, install it into a fresh venv, run the check from an empty directory.
 
     This is what an agent runs after `pip install xno-call-binding`; the source tree is not on the
     path, so a module that reaches back into examples/ (or anywhere in the checkout) fails here.
+
+    It never skips. The wheel is built offline by the interpreter running the tests
+    (`sys.executable -m pip wheel --no-build-isolation --no-index`), from a copy of the source in a
+    temporary directory, so nothing is downloaded and nothing (build/, *.egg-info) is written into
+    the checkout. If that interpreter cannot build it (no pip, no setuptools), the test FAILS with
+    the reason: a check that cannot run is not a check that passed. A fresh venv on Python 3.12+
+    carries no setuptools, so the venv is used only to install and run the wheel, never to build.
     """
 
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
-        tmp = Path(cls._tmp.name)
+        cls.setup_error = None
+        try:
+            cls._prepare(Path(cls._tmp.name))
+        except RuntimeError as e:
+            cls.setup_error = str(e)
+
+    @classmethod
+    def _prepare(cls, tmp):
+        src = tmp / "src"
+        shutil.copytree(ROOT, src, ignore=_NOT_SOURCE)
         wheels = tmp / "wheels"
+        b = _run([sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
+                  "--no-index", "-q", "-w", str(wheels), str(src)])
+        if b.returncode != 0:
+            raise RuntimeError("offline wheel build with %s failed (it needs pip and setuptools>=61 "
+                               "installed; nothing is downloaded): %s"
+                               % (sys.executable, (b.stderr or b.stdout).strip()[-400:]))
+        found = sorted(wheels.glob("xno_call_binding-*.whl"))
+        if not found:
+            raise RuntimeError("pip wheel exited 0 but wrote no xno_call_binding wheel")
+        cls.wheel = found[-1]
         venv_dir = tmp / "venv"
-        v = subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], capture_output=True,
-                           text=True)
+        v = _run([sys.executable, "-m", "venv", str(venv_dir)])
         if v.returncode != 0:
-            raise unittest.SkipTest("venv failed here: %s" % v.stderr.strip()[-300:])
+            raise RuntimeError("venv failed: %s" % v.stderr.strip()[-400:])
         cls.py = venv_dir / ("Scripts" if os.name == "nt" else "bin") / "python"
-        # Built offline by the fresh venv's own pip and setuptools, not the system's (a distro
-        # setuptools can be patched in ways a clean install never sees).
-        b = subprocess.run([str(cls.py), "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
-                            "--no-index", "-q", "-w", str(wheels), str(ROOT)],
-                           capture_output=True, text=True)
-        if b.returncode != 0:
-            b = subprocess.run([str(cls.py), "-m", "pip", "wheel", "--no-deps", "-q", "-w",
-                                str(wheels), str(ROOT)], capture_output=True, text=True)
-        if b.returncode != 0:
-            raise unittest.SkipTest("wheel build failed here: %s" % b.stderr.strip()[-300:])
-        cls.wheel = sorted(wheels.glob("xno_call_binding-*.whl"))[-1]
-        i = subprocess.run([str(cls.py), "-m", "pip", "install", "--no-index", "--no-deps", "-q",
-                            str(cls.wheel)], capture_output=True, text=True)
+        i = _run([str(cls.py), "-m", "pip", "install", "--no-index", "--no-deps", "-q",
+                  str(cls.wheel)])
         if i.returncode != 0:
-            raise unittest.SkipTest("wheel install failed here: %s" % i.stderr.strip()[-300:])
+            raise RuntimeError("wheel install failed: %s" % i.stderr.strip()[-400:])
         cls.empty = tmp / "empty"
         cls.empty.mkdir()
 
     @classmethod
     def tearDownClass(cls):
         cls._tmp.cleanup()
+
+    def setUp(self):
+        if self.setup_error:
+            self.fail(self.setup_error)
+
+    def test_build_leaves_the_checkout_clean(self):
+        self.assertFalse((ROOT / "xno_call_binding.egg-info").exists() and
+                         (ROOT / "xno_call_binding.egg-info").stat().st_mtime >= _START,
+                         "the build wrote egg-info into the checkout")
+        self.assertFalse((ROOT / "build").exists() and
+                         (ROOT / "build").stat().st_mtime >= _START,
+                         "the build wrote build/ into the checkout")
 
     def _env(self):
         env = dict(os.environ)
