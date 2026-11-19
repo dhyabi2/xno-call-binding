@@ -7,11 +7,20 @@ pip install xno-call-binding==0.2.0
 python -c "from xno_call_binding import call_binding; print(call_binding.derive_quote_id)"
 ```
 
-Run a packaged check from the installed wheel (no checkout, offline, stdlib only; `--list` names them):
+Run a packaged check from the installed wheel (no checkout, offline, stdlib only; `--list` names them).
+The check module is new in **0.2.1**; 0.2.0 does not have it. Until 0.2.1 is on PyPI, install it from git:
 
 ```
+pip install "xno-call-binding==0.2.1" || pip install "git+https://github.com/dhyabi2/xno-call-binding"
 python -m xno_call_binding.check delivery-fails
 ```
+
+Its output is pinned byte for byte in `tests/golden/delivery_fails.out` (8940 bytes), so a change to
+any price, key or case shows up as a test failure, not as a quietly different record.
+
+Building the wheel offline in the test suite uses whatever setuptools this machine already has
+(system, or wheels bundled with the interpreter); where none can build it, the four `InstalledWheel`
+tests fail with the reason instead of skipping.
 
 It prints one quote and four cases (paid but the delivered bytes fail their hash; paid, nothing
 delivered; paid and the hash matches; a duplicate exact payment after a delivered one), one JSON

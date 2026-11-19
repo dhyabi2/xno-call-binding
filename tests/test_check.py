@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+GOLDEN = ROOT / "tests" / "golden" / "delivery_fails.out"
 _START = time.time()
 
 
@@ -48,7 +49,32 @@ class PackagedCheck(unittest.TestCase):
         self.assertEqual(ex.returncode, 0, ex.stderr)
         self.assertEqual(mod.stdout, ex.stdout)
 
+    def test_output_matches_the_golden_file(self):
+        # The example and the module share one code path, so comparing them cannot catch a
+        # changed PRICE or case; the golden bytes can.
+        with tempfile.TemporaryDirectory() as tmp:
+            mod = subprocess.run([sys.executable, "-I", "-c",
+                                  "import sys; sys.path.insert(0, %r); import runpy; "
+                                  "sys.argv = ['check', 'delivery-fails']; "
+                                  "runpy.run_module('xno_call_binding.check', run_name='__main__')"
+                                  % str(ROOT)], cwd=tmp, capture_output=True)
+        self.assertEqual(mod.returncode, 0, mod.stderr)
+        golden = GOLDEN.read_bytes()
+        self.assertEqual(len(golden), 8940)
+        self.assertEqual(mod.stdout, golden)
+
+    def test_version_is_the_release_with_the_check(self):
+        # The README installs the release that carries this module; 0.2.0 does not.
+        import re
+        import xno_call_binding
+        meta = re.search(r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M)
+        self.assertEqual(meta.group(1), xno_call_binding.__version__)
+        self.assertNotEqual(xno_call_binding.__version__, "0.2.0")
+        self.assertIn("xno-call-binding==%s" % xno_call_binding.__version__,
+                      (ROOT / "README.md").read_text())
+
     def test_list_and_unknown(self):
+
         with tempfile.TemporaryDirectory() as tmp:
             lst = run("--list", cwd=tmp)
             bad = run("no-such-check", cwd=tmp)
@@ -266,6 +292,7 @@ class InstalledWheel(unittest.TestCase):
                             capture_output=True)
         self.assertEqual(ex.returncode, 0, ex.stderr)
         self.assertEqual(r.stdout, ex.stdout)
+        self.assertEqual(r.stdout, GOLDEN.read_bytes())
         self.assertTrue(r.stdout.startswith(b"delivery_fails: 1 quote, 4 cases"))
 
     def test_wheel_never_touches_the_checkout(self):

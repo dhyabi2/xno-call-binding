@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
+
+Version bumped to 0.2.1 (`pyproject.toml`, `xno_call_binding.__version__`): the README's
+`python -m xno_call_binding.check` line needs this release, which 0.2.0 does not carry.
+
+- `tests/golden/delivery_fails.out` pins the check's 8940 output bytes; `tests/test_check.py`
+  compares the packaged module's output with it, so a changed price or case goes red.
 
 - Added `examples/delivery_fails.py` and `tests/test_delivery_fails.py`: settlement and delivery
   judged separately (payment matches but content fails its sha256, no content, content matches,
