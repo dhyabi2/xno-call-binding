@@ -5,6 +5,10 @@
 - Added `examples/delivery_fails.py` and `tests/test_delivery_fails.py`: settlement and delivery
   judged separately (payment matches but content fails its sha256, no content, content matches,
   duplicate payment), each field labelled with its provenance. No library change.
+- Moved that check into the package (`xno_call_binding/delivery_fails.py`) and added
+  `python3 -m xno_call_binding.check delivery-fails` (and `--list`), so the installed wheel runs it
+  with no checkout; `examples/delivery_fails.py` now runs the packaged module and prints the same
+  bytes. `tests/test_check.py` runs it from an empty directory with only the package on the path.
 
 ## 0.2.0
 
