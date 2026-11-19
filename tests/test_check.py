@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
 import unittest
@@ -120,18 +121,89 @@ def _run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
+def _local_wheelhouses():
+    """Directories on this machine that already hold a setuptools wheel; nothing is downloaded.
+
+    The stdlib's own ensurepip bundles (Python 3.11 ships setuptools there; 3.12+ ship only pip)
+    of every python3.x installed beside this one or under /usr/lib and /usr/local/lib, and
+    Debian/Ubuntu's /usr/share/python-wheels.
+    pip also reads PIP_FIND_LINKS, so a caller can point at its own wheelhouse.
+    """
+    roots = [Path(sysconfig.get_paths()["stdlib"]).parent, Path("/usr/lib"), Path("/usr/local/lib")]
+    dirs = []
+    for r in roots:
+        for d in sorted(r.glob("python3*/ensurepip/_bundled")):
+            if d not in dirs:
+                dirs.append(d)
+    dirs.append(Path("/usr/share/python-wheels"))
+    return [d for d in dirs if any(d.glob("setuptools-*.whl"))]
+
+
+def _pip_wheel(py, src, wheels, env):
+    return _run([str(py), "-m", "pip", "wheel", "--no-deps", "--no-build-isolation", "--no-index",
+                 "-q", "-w", str(wheels), str(src)], env=env)
+
+
+def _build_wheel(src, wheels, tmp):
+    """Build the wheel offline; return which way worked, or raise with every way's reason.
+
+    1. The interpreter running the tests, with its own setuptools. Below 3.12 the build runs with
+       SETUPTOOLS_USE_DISTUTILS=stdlib: Debian's patched setuptools 68 otherwise dies in
+       bdist_wheel with `AttributeError: install_layout` on an interpreter it was not built for.
+    2. A fresh build venv of the same interpreter with setuptools>=70.1 (bdist_wheel built in)
+       installed with --no-index from wheels already on the machine (_local_wheelhouses). This is
+       the way on 3.12+ when the system setuptools is Debian's (no stdlib distutils to fall back to).
+    """
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    tries = []
+    if sys.version_info < (3, 12):
+        tries.append(("system setuptools, SETUPTOOLS_USE_DISTUTILS=stdlib",
+                      dict(env, SETUPTOOLS_USE_DISTUTILS="stdlib")))
+    tries.append(("system setuptools", env))
+    errors = []
+    for name, e in tries:
+        b = _pip_wheel(sys.executable, src, wheels, e)
+        if b.returncode == 0:
+            return name
+        errors.append("%s: %s" % (name, (b.stderr or b.stdout).strip()[-300:]))
+    houses = _local_wheelhouses()
+    if not houses:
+        errors.append("build venv: no local wheel of setuptools found (looked in the stdlib "
+                      "ensurepip bundles and /usr/share/python-wheels; set PIP_FIND_LINKS)")
+    else:
+        bv = tmp / "build-venv"
+        v = _run([sys.executable, "-m", "venv", str(bv)])
+        bpy = bv / ("Scripts" if os.name == "nt" else "bin") / "python"
+        links = []
+        for d in houses:
+            links += ["--find-links", str(d)]
+        i = _run([str(bpy), "-m", "pip", "install", "--no-index", "-q"] + links +
+                 ["setuptools>=70.1"], env=env) if v.returncode == 0 else v
+        if i.returncode != 0:
+            errors.append("build venv setup: %s" % (i.stderr or i.stdout).strip()[-300:])
+        else:
+            b = _pip_wheel(bpy, src, wheels, env)
+            if b.returncode == 0:
+                return "build venv, setuptools>=70.1 from local wheels (%s)" % ", ".join(map(str, houses))
+            errors.append("build venv: %s" % (b.stderr or b.stdout).strip()[-300:])
+    raise RuntimeError("offline wheel build with %s failed every way (nothing is downloaded):\n%s"
+                       % (sys.executable, "\n".join(errors)))
+
+
 class InstalledWheel(unittest.TestCase):
     """Build the wheel, install it into a fresh venv, run the check from an empty directory.
 
     This is what an agent runs after `pip install xno-call-binding`; the source tree is not on the
     path, so a module that reaches back into examples/ (or anywhere in the checkout) fails here.
 
-    It never skips. The wheel is built offline by the interpreter running the tests
-    (`sys.executable -m pip wheel --no-build-isolation --no-index`), from a copy of the source in a
-    temporary directory, so nothing is downloaded and nothing (build/, *.egg-info) is written into
-    the checkout. If that interpreter cannot build it (no pip, no setuptools), the test FAILS with
-    the reason: a check that cannot run is not a check that passed. A fresh venv on Python 3.12+
-    carries no setuptools, so the venv is used only to install and run the wheel, never to build.
+    It never skips. The wheel is built offline (`pip wheel --no-build-isolation --no-index`) from a
+    copy of the source in a temporary directory, so nothing is downloaded and nothing (build/,
+    *.egg-info) is written into the checkout: first by the interpreter running the tests with its
+    own setuptools, then, if that fails, in a build venv seeded from setuptools wheels already on
+    the machine (see _build_wheel). If no way builds it, the test FAILS with every reason: a check
+    that cannot run is not a check that passed. The wheel is then installed into a separate fresh
+    venv that only installs and runs it.
     """
 
     @classmethod
@@ -148,12 +220,7 @@ class InstalledWheel(unittest.TestCase):
         src = tmp / "src"
         shutil.copytree(ROOT, src, ignore=_NOT_SOURCE)
         wheels = tmp / "wheels"
-        b = _run([sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
-                  "--no-index", "-q", "-w", str(wheels), str(src)])
-        if b.returncode != 0:
-            raise RuntimeError("offline wheel build with %s failed (it needs pip and setuptools>=61 "
-                               "installed; nothing is downloaded): %s"
-                               % (sys.executable, (b.stderr or b.stdout).strip()[-400:]))
+        cls.build_way = _build_wheel(src, wheels, tmp)
         found = sorted(wheels.glob("xno_call_binding-*.whl"))
         if not found:
             raise RuntimeError("pip wheel exited 0 but wrote no xno_call_binding wheel")
