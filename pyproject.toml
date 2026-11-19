@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xno-call-binding"
-version = "0.2.0"
+version = "0.2.1"
 description = "Bind a Nano (XNO) payment to the call it paid for: stdlib only, no key; network only in the read-only node and price helpers (finality_facts, four_check, usd_quote), never at import."
 license = {text = "MIT"}
 readme = "README.md"

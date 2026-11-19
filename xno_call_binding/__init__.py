@@ -8,7 +8,7 @@ four_check, usd_quote) touch the network, and only when called.
     from xno_call_binding.call_binding import QuoteLedger, derive_quote_id
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 from . import (
     ap2_nano_mandate,
