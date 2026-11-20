@@ -65,7 +65,7 @@ Standard library only. No key, no signing, no broadcast. The binding convention 
 `binding_options`, `presigned_send`, `ap2_nano_mandate`) makes no network calls: it is arithmetic over
 records the buyer and the seller already hold. Network is used only by the read-only node and price helpers
 (`finality_facts`, `four_check`, `usd_quote`), and only when their functions are called, never at import;
-`quote_service` serves HTTP when you run it and gets its prices through `usd_quote`. 154 tests, green offline (`PIP_NO_INDEX=1`) on Python 3.11, 3.12 and 3.13 (the installed-wheel tests build the wheel offline: with the interpreter's own setuptools first, then in a build venv seeded from setuptools wheels already on the machine; if no way builds it, those tests fail with every reason, never skip), `python3 -m unittest
+`quote_service` serves HTTP when you run it and gets its prices through `usd_quote`. 156 tests, green offline (`PIP_NO_INDEX=1`) on Python 3.11, 3.12 and 3.13 (the installed-wheel tests build the wheel offline: with the interpreter's own setuptools first, then in a build venv seeded from setuptools wheels already on the machine; if no way builds it, those tests fail with every reason, never skip), `python3 -m unittest
 discover -s tests`; a worked run, `python3 e2e_check.py`.
 
 ## The objection this answers, in the seller's own words
