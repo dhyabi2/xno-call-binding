@@ -170,15 +170,37 @@ def _pip_wheel(py, src, wheels, env):
                  "-q", "-w", str(wheels), str(src)], env=env)
 
 
+# The PEP 517 hook `python -m build --no-isolation` calls, with no pip and no build frontend.
+_HOOK = "import sys, setuptools.build_meta as b; print(b.build_wheel(sys.argv[1]))"
+
+
+def _base_python():
+    """The interpreter a venv was made from, or None outside a venv.
+
+    The venv's bin/python is often a symlink to it; it is still a different sys.path (no
+    system site-packages), so only the unresolved paths are compared.
+    """
+    if sys.prefix == sys.base_prefix:
+        return None
+    base = getattr(sys, "_base_executable", None)
+    if base and Path(base).is_file() and os.path.abspath(base) != os.path.abspath(sys.executable):
+        return base
+    return None
+
+
 def _build_wheel(src, wheels, tmp):
     """Build the wheel offline; return which way worked, or raise with every way's reason.
 
     1. The interpreter running the tests, with its own setuptools. Below 3.12 the build runs with
        SETUPTOOLS_USE_DISTUTILS=stdlib: Debian's patched setuptools 68 otherwise dies in
        bdist_wheel with `AttributeError: install_layout` on an interpreter it was not built for.
-    2. A fresh build venv of the same interpreter with setuptools>=70.1 (bdist_wheel built in)
-       installed with --no-index from wheels already on the machine (_local_wheelhouses). This is
-       the way on 3.12+ when the system setuptools is Debian's (no stdlib distutils to fall back to).
+    2. If the tests run in a venv (say one holding only pytest), the venv's base interpreter with
+       its own setuptools (and wheel, for setuptools < 70.1), through the setuptools.build_meta
+       hook directly, so the base needs no pip: the same setuptools a `python3 -m build
+       --no-isolation` with that interpreter uses. This is the way on a machine whose only
+       setuptools is the system one (Debian/Ubuntu python3-setuptools 68).
+    3. A fresh build venv of the same interpreter with setuptools>=70.1 (bdist_wheel built in)
+       installed with --no-index from wheels already on the machine (_local_wheelhouses).
     """
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
@@ -193,6 +215,17 @@ def _build_wheel(src, wheels, tmp):
         if b.returncode == 0:
             return name
         errors.append("%s: %s" % (name, (b.stderr or b.stdout).strip()[-300:]))
+    base = _base_python()
+    if base is None:
+        errors.append("venv base interpreter: not in a venv, or base not found")
+    else:
+        wheels.mkdir(parents=True, exist_ok=True)
+        for name, e in tries:
+            name = "venv base interpreter %s, %s" % (base, name)
+            b = _run([base, "-c", _HOOK, str(wheels)], cwd=str(src), env=e)
+            if b.returncode == 0:
+                return name
+            errors.append("%s: %s" % (name, (b.stderr or b.stdout).strip()[-300:]))
     houses = _local_wheelhouses()
     if not houses:
         errors.append("build venv: no local wheel of setuptools found (looked in the stdlib "
@@ -226,8 +259,9 @@ class InstalledWheel(unittest.TestCase):
     It never skips. The wheel is built offline (`pip wheel --no-build-isolation --no-index`) from a
     copy of the source in a temporary directory, so nothing is downloaded and nothing (build/,
     *.egg-info) is written into the checkout: first by the interpreter running the tests with its
-    own setuptools, then, if that fails, in a build venv seeded from setuptools wheels already on
-    the machine (see _build_wheel). If no way builds it, the test FAILS with every reason: a check
+    own setuptools, then by the base interpreter of the venv the tests run in (if any) with its
+    setuptools, then in a build venv seeded from setuptools wheels already on the machine (see
+    _build_wheel). If no way builds it, the test FAILS with every reason: a check
     that cannot run is not a check that passed. The wheel is then installed into a separate fresh
     venv that only installs and runs it.
     """
