@@ -3,15 +3,14 @@
 ## Install
 
 ```
-pip install xno-call-binding==0.2.0
+pip install xno-call-binding==0.2.1
 python -c "from xno_call_binding import call_binding; print(call_binding.derive_quote_id)"
 ```
 
 Run a packaged check from the installed wheel (no checkout, offline, stdlib only; `--list` names them).
-The check module is new in **0.2.1**; 0.2.0 does not have it. Until 0.2.1 is on PyPI, install it from git:
+The check module is new in **0.2.1**; 0.2.0 does not have it.
 
 ```
-pip install "xno-call-binding==0.2.1" || pip install "git+https://github.com/dhyabi2/xno-call-binding"
 python -m xno_call_binding.check delivery-fails
 ```
 
