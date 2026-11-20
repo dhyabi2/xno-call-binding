@@ -3,15 +3,14 @@
 ## Install
 
 ```
-pip install xno-call-binding==0.2.0
+pip install xno-call-binding==0.2.1
 python -c "from xno_call_binding import call_binding; print(call_binding.derive_quote_id)"
 ```
 
 Run a packaged check from the installed wheel (no checkout, offline, stdlib only; `--list` names them).
-The check module is new in **0.2.1**; 0.2.0 does not have it. Until 0.2.1 is on PyPI, install it from git:
+The check module is new in **0.2.1**; 0.2.0 does not have it.
 
 ```
-pip install "xno-call-binding==0.2.1" || pip install "git+https://github.com/dhyabi2/xno-call-binding"
 python -m xno_call_binding.check delivery-fails
 ```
 
@@ -66,7 +65,7 @@ Standard library only. No key, no signing, no broadcast. The binding convention 
 `binding_options`, `presigned_send`, `ap2_nano_mandate`) makes no network calls: it is arithmetic over
 records the buyer and the seller already hold. Network is used only by the read-only node and price helpers
 (`finality_facts`, `four_check`, `usd_quote`), and only when their functions are called, never at import;
-`quote_service` serves HTTP when you run it and gets its prices through `usd_quote`. 154 tests, green offline (`PIP_NO_INDEX=1`) on Python 3.11, 3.12 and 3.13 (the installed-wheel tests build the wheel offline: with the interpreter's own setuptools first, then in a build venv seeded from setuptools wheels already on the machine; if no way builds it, those tests fail with every reason, never skip), `python3 -m unittest
+`quote_service` serves HTTP when you run it and gets its prices through `usd_quote`. 156 tests, green offline (`PIP_NO_INDEX=1`) on Python 3.11, 3.12 and 3.13 (the installed-wheel tests build the wheel offline: with the interpreter's own setuptools first, then in a build venv seeded from setuptools wheels already on the machine; if no way builds it, those tests fail with every reason, never skip), `python3 -m unittest
 discover -s tests`; a worked run, `python3 e2e_check.py`.
 
 ## The objection this answers, in the seller's own words
